@@ -1,0 +1,11 @@
+{
+  "name": "dmaya-code-figma-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "dMaya HTML-to-Figma importer plugin.",
+  "scripts": {
+    "check": "node --check code.js",
+    "pack": "node scripts/pack-plugin.mjs"
+  },
+  "devDependencies": {}
+}

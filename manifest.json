@@ -1,0 +1,12 @@
+{
+  "name": "dMaya HTML to Figma",
+  "id": "1428571428571428571",
+  "api": "1.0.0",
+  "editorType": ["figma"],
+  "main": "code.js",
+  "ui": "ui.html",
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"]
+  }
+}
