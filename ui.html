@@ -110,6 +110,34 @@
         color: #78716c;
         font-size: 11px;
       }
+
+      .success-cta {
+        display: none;
+        margin-top: 2px;
+        color: #78716c;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .success-cta.is-visible {
+        display: block;
+      }
+
+      a {
+        color: #047857;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .attribution {
+        margin-top: 12px;
+        color: #78716c;
+        font-size: 11px;
+        line-height: 1.45;
+      }
     </style>
   </head>
   <body>
@@ -127,22 +155,30 @@
 
       <input id="file" type="file" accept=".json,application/json" />
       <div id="status" class="status"></div>
+      <div id="success-cta" class="success-cta">
+        Try the full design tool at <a href="https://dmaya.ai" target="_blank" rel="noopener noreferrer">dmaya.ai</a>
+      </div>
 
       <div class="hint">
         <p>This plugin creates real Figma frames, rectangles, text, vectors, and image-fill rectangles from the payload. Missing remote assets are skipped unless the converter embedded them as data URLs.</p>
       </div>
       <div class="build">Plugin v0.1.0 · Importer build: backend-import-plan-v15</div>
+      <footer class="attribution">
+        Made by dMaya · <a href="https://dmaya.ai" target="_blank" rel="noopener noreferrer">dmaya.ai</a> · Unlimited free forever
+      </footer>
     </main>
 
     <script>
       const textarea = document.getElementById("payload");
       const statusEl = document.getElementById("status");
+      const successCtaEl = document.getElementById("success-cta");
       const importButton = document.getElementById("import");
       const fileInput = document.getElementById("file");
 
       function setStatus(message, tone) {
         statusEl.className = "status " + (tone || "");
         statusEl.textContent = message || "";
+        successCtaEl.className = "success-cta";
       }
 
       document.getElementById("clear").addEventListener("click", () => {
@@ -181,6 +217,7 @@
         importButton.disabled = false;
         if (message.type === "import-complete") {
           setStatus(message.summary, "ok");
+          successCtaEl.className = "success-cta is-visible";
         }
         if (message.type === "import-error") {
           setStatus(message.message, "bad");

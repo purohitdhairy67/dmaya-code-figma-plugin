@@ -39,6 +39,18 @@ expect(payloadVersion === "html-to-figma-plugin-payload-v1", "Unexpected SUPPORT
 expect(importPlanVersion === "figma-import-plan-v1", "Unexpected SUPPORTED_BACKEND_IMPORT_PLAN_VERSION.");
 expect(ui.includes(`Plugin v${pluginVersion}`), "ui.html must show the current plugin version.");
 expect(ui.includes(pluginBuild), "ui.html must show the current plugin build.");
+expect(
+  ui.includes("Made by dMaya ·") &&
+    ui.includes("dmaya.ai") &&
+    ui.includes("Unlimited free forever") &&
+    ui.includes('href="https://dmaya.ai"') &&
+    ui.includes('target="_blank"'),
+  "ui.html must include the dMaya attribution link."
+);
+expect(
+  ui.includes("Try the full design tool at") && ui.includes("success-cta"),
+  "ui.html must include the success-state dMaya CTA."
+);
 expect(baseline.includes(pluginBuild), "REGRESSION_BASELINE.md must mention the current plugin build.");
 expect(changelog.includes(`## ${pluginVersion}`), "CHANGELOG.md must include the current version.");
 
