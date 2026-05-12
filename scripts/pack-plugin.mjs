@@ -16,7 +16,7 @@ for (const file of requiredFiles) {
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
 
-const zipResult = spawnSync("zip", ["-qr", zipPath, ...requiredFiles, "REGRESSION_BASELINE.md"], {
+const zipResult = spawnSync("zip", ["-qr", zipPath, ...requiredFiles, "REGRESSION_BASELINE.md", "PUBLISHING.md", "STORE_LISTING.md", "assets"], {
   cwd: root,
   stdio: "inherit",
 });

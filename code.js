@@ -492,14 +492,14 @@ function assertPayloadCompatibility(payload) {
   const payloadVersion = String(payload.version || "");
   if (payloadVersion !== SUPPORTED_PAYLOAD_VERSION) {
     throw new Error(
-      "This payload uses an unsupported dMaya payload format. Update the dMaya HTML to Figma plugin and try again."
+      "This payload uses an unsupported dMaya payload format. Update HTML to Figma by dMaya and try again."
     );
   }
 
   const minPluginVersion = payload.minPluginVersion || payload.requiredPluginVersion;
   if (minPluginVersion && compareVersions(PLUGIN_VERSION, minPluginVersion) < 0) {
     throw new Error(
-      "This payload requires dMaya HTML to Figma plugin v" + minPluginVersion +
+      "This payload requires HTML to Figma by dMaya v" + minPluginVersion +
       " or newer. Update the plugin and try again."
     );
   }
@@ -507,7 +507,7 @@ function assertPayloadCompatibility(payload) {
   const importPlanVersion = payload.backendImportPlanVersion;
   if (importPlanVersion && importPlanVersion !== SUPPORTED_BACKEND_IMPORT_PLAN_VERSION) {
     throw new Error(
-      "This payload was generated for a newer dMaya import engine. Update the dMaya HTML to Figma plugin and try again."
+      "This payload was generated for a newer dMaya import engine. Update HTML to Figma by dMaya and try again."
     );
   }
 

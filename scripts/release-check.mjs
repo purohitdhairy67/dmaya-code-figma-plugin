@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -21,6 +21,7 @@ const code = read("code.js");
 const ui = read("ui.html");
 const baseline = read("REGRESSION_BASELINE.md");
 const changelog = read("CHANGELOG.md");
+const storeListing = read("STORE_LISTING.md");
 
 const syntax = spawnSync("node", ["--check", "code.js"], { cwd: root, encoding: "utf8" });
 if (syntax.status !== 0) fail(syntax.stderr || syntax.stdout || "code.js syntax check failed.");
@@ -41,7 +42,7 @@ expect(ui.includes(pluginBuild), "ui.html must show the current plugin build.");
 expect(baseline.includes(pluginBuild), "REGRESSION_BASELINE.md must mention the current plugin build.");
 expect(changelog.includes(`## ${pluginVersion}`), "CHANGELOG.md must include the current version.");
 
-expect(manifest.name === "dMaya HTML to Figma", "manifest name is unexpected.");
+expect(manifest.name === "HTML to Figma by dMaya", "manifest name is unexpected.");
 expect(manifest.api === "1.0.0", "manifest api must stay 1.0.0 unless deliberately upgraded and tested.");
 expect(Array.isArray(manifest.editorType) && manifest.editorType.includes("figma"), "manifest editorType must include figma.");
 expect(manifest.main === "code.js", "manifest main must be code.js.");
@@ -53,6 +54,13 @@ expect(
     manifest.networkAccess.allowedDomains.length === 1 &&
     manifest.networkAccess.allowedDomains[0] === "none",
   "manifest networkAccess.allowedDomains must be [\"none\"] for this no-network importer."
+);
+expect(existsSync(resolve(root, "assets/dmaya-plugin-icon.svg")), "Missing assets/dmaya-plugin-icon.svg.");
+expect(existsSync(resolve(root, "assets/dmaya-plugin-icon.png")), "Missing assets/dmaya-plugin-icon.png.");
+expect(storeListing.includes("HTML to Figma by dMaya"), "STORE_LISTING.md must include the plugin name.");
+expect(
+  storeListing.includes("Free forever. Unlimited HTML, URLs, and AI output into editable Figma layers."),
+  "STORE_LISTING.md must include the approved tagline."
 );
 
 if (failures.length > 0) {
