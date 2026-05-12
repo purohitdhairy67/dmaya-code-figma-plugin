@@ -16,11 +16,13 @@ If Figma asks for a raster file, use `assets/dmaya-plugin-icon.png`.
 
 ## Short Description
 
-Convert HTML, public URLs, AI-generated frontends, and exported single-file pages into editable Figma layers.
+Convert HTML, public URLs, Claude Code, Lovable, and AI-generated frontends into editable Figma layers.
 
 ## Description
 
 HTML to Figma by dMaya connects the free dMaya web converter with Figma. Paste HTML, upload an `.html` file, or convert a public URL on dmaya.ai, then paste the generated payload into this plugin to create editable Figma frames, text, vectors, image fills, borders, shadows, and raster fallbacks where needed.
+
+Use it for HTML to Figma, URL to Figma, Claude Code to Figma, Lovable to Figma, Cursor to Figma, Bolt to Figma, v0 to Figma, Replit to Figma, and other AI output to Figma workflows.
 
 The heavy browser rendering happens on dMaya's backend. The plugin itself does not make network requests and only imports the payload you paste or upload.
 

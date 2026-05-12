@@ -19,6 +19,7 @@ const pkg = JSON.parse(read("package.json"));
 const manifest = JSON.parse(read("manifest.json"));
 const code = read("code.js");
 const ui = read("ui.html");
+const readme = read("README.md");
 const baseline = read("REGRESSION_BASELINE.md");
 const changelog = read("CHANGELOG.md");
 const storeListing = read("STORE_LISTING.md");
@@ -51,6 +52,26 @@ expect(
   ui.includes("Try the full design tool at") && ui.includes("success-cta"),
   "ui.html must include the success-state dMaya CTA."
 );
+expect(readme.startsWith("# HTML to Figma by dMaya"), "README.md must start with the approved H1.");
+expect(
+  readme.includes("[HTML to Figma by dMaya](https://dmaya.ai/html-to-figma)") &&
+    readme.includes("[dMaya](https://dmaya.ai)"),
+  "README.md must link to the converter and company in the opening copy."
+);
+[
+  "HTML to Figma",
+  "URL to Figma",
+  "Claude Code to Figma",
+  "Lovable to Figma",
+  "Cursor to Figma",
+  "Bolt to Figma",
+  "v0 to Figma",
+  "Replit to Figma",
+  "AI output to Figma",
+].forEach((keyword) => {
+  expect(readme.includes(keyword), `README.md must include keyword: ${keyword}.`);
+  expect(storeListing.includes(keyword), `STORE_LISTING.md must include keyword: ${keyword}.`);
+});
 expect(baseline.includes(pluginBuild), "REGRESSION_BASELINE.md must mention the current plugin build.");
 expect(changelog.includes(`## ${pluginVersion}`), "CHANGELOG.md must include the current version.");
 
