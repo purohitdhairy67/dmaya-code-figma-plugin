@@ -4,8 +4,9 @@
   "private": true,
   "description": "dMaya HTML-to-Figma importer plugin.",
   "scripts": {
-    "check": "node --check code.js",
-    "pack": "node scripts/pack-plugin.mjs"
+    "syntax": "node --check code.js",
+    "check": "node scripts/release-check.mjs",
+    "pack": "npm run check && node scripts/pack-plugin.mjs"
   },
   "devDependencies": {}
 }

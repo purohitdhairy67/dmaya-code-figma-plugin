@@ -1,7 +1,10 @@
 figma.showUI(__html__, { width: 430, height: 620, themeColors: true });
 
 const DEFAULT_FONT = { family: "Inter", style: "Regular" };
+const PLUGIN_VERSION = "0.1.0";
 const PLUGIN_BUILD = "backend-import-plan-v15";
+const SUPPORTED_PAYLOAD_VERSION = "html-to-figma-plugin-payload-v1";
+const SUPPORTED_BACKEND_IMPORT_PLAN_VERSION = "figma-import-plan-v1";
 const MAX_IMAGE_DIMENSION = 4096;
 const MULTI_LINE_WIDTH_FACTOR = 1.08;
 const MULTI_LINE_MIN_PADDING = 8;
@@ -463,21 +466,69 @@ function dataUrlToBytes(dataUrl) {
   return figma.base64Decode(data);
 }
 
+function parseVersion(value) {
+  return String(value || "0")
+    .split(".")
+    .slice(0, 3)
+    .map(function (part) {
+      const number = parseInt(part.replace(/[^0-9].*$/, ""), 10);
+      return Number.isFinite(number) ? number : 0;
+    });
+}
+
+function compareVersions(left, right) {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (a[index] || 0) - (b[index] || 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+function assertPayloadCompatibility(payload) {
+  if (!payload || typeof payload !== "object") throw new Error("Missing payload.");
+
+  const payloadVersion = String(payload.version || "");
+  if (payloadVersion !== SUPPORTED_PAYLOAD_VERSION) {
+    throw new Error(
+      "This payload uses an unsupported dMaya payload format. Update the dMaya HTML to Figma plugin and try again."
+    );
+  }
+
+  const minPluginVersion = payload.minPluginVersion || payload.requiredPluginVersion;
+  if (minPluginVersion && compareVersions(PLUGIN_VERSION, minPluginVersion) < 0) {
+    throw new Error(
+      "This payload requires dMaya HTML to Figma plugin v" + minPluginVersion +
+      " or newer. Update the plugin and try again."
+    );
+  }
+
+  const importPlanVersion = payload.backendImportPlanVersion;
+  if (importPlanVersion && importPlanVersion !== SUPPORTED_BACKEND_IMPORT_PLAN_VERSION) {
+    throw new Error(
+      "This payload was generated for a newer dMaya import engine. Update the dMaya HTML to Figma plugin and try again."
+    );
+  }
+
+  return payload;
+}
+
 function normalizePayload(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Missing payload.");
   if (raw.pluginPayload && raw.pluginPayload.document && Array.isArray(raw.pluginPayload.assets)) {
-    return raw.pluginPayload;
+    return assertPayloadCompatibility(raw.pluginPayload);
   }
   if (raw.version === "html-to-figma-plugin-payload-v1" && raw.document && Array.isArray(raw.assets)) {
-    return raw;
+    return assertPayloadCompatibility(raw);
   }
   if (raw.figma && Array.isArray(raw.assets)) {
-    return {
-      version: "html-to-figma-plugin-payload-v1",
+    return assertPayloadCompatibility({
+      version: SUPPORTED_PAYLOAD_VERSION,
       importMode: raw.meta && raw.meta.mode ? raw.meta.mode : "hybrid",
       document: raw.figma,
       assets: raw.assets,
-    };
+    });
   }
   throw new Error("This JSON is not a dMaya HTML-to-Figma payload.");
 }
@@ -1844,7 +1895,7 @@ async function importPayload(rawPayload) {
   const maskFailureText = context.stats.maskGroupFailures > 0
     ? ` ${context.stats.maskGroupFailures} masks fell back to frame clipping.`
     : "";
-  return `Imported ${created.length} root layer${created.length === 1 ? "" : "s"} with ${context.stats.nodes} nodes and ${context.stats.images} images. Build ${PLUGIN_BUILD}.${clippingText}${maskFailureText}${skippedText}`;
+  return `Imported ${created.length} root layer${created.length === 1 ? "" : "s"} with ${context.stats.nodes} nodes and ${context.stats.images} images. Plugin v${PLUGIN_VERSION} (${PLUGIN_BUILD}).${clippingText}${maskFailureText}${skippedText}`;
 }
 
 figma.ui.onmessage = async (message) => {

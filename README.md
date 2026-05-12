@@ -29,9 +29,12 @@ npm run pack
 
 This creates `dist/dmaya-html-to-figma-plugin.zip` for manual release testing. Production users should install from the Figma Community listing once published; the frontend should link to that store URL, not to a hosted zip.
 
+See `PUBLISHING.md` before submitting the first Community build or any update.
+
 ## Release Notes
 
 - Update `PLUGIN_BUILD` in `code.js`.
+- Update `PLUGIN_VERSION` when the release changes compatibility or user-visible behavior.
 - Update `REGRESSION_BASELINE.md`.
 - Run `npm run check`.
 - Smoke-test imports against the dMaya landing page and Workvio dashboard payloads.
