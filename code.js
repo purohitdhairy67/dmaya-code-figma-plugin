@@ -1,13 +1,14 @@
 figma.showUI(__html__, { width: 430, height: 620, themeColors: true });
 
 const DEFAULT_FONT = { family: "Inter", style: "Regular" };
-const PLUGIN_VERSION = "0.1.0";
-const PLUGIN_BUILD = "backend-import-plan-v15";
+const PLUGIN_VERSION = "0.2.2";
+const PLUGIN_BUILD = "remote-assets-v3";
 const SUPPORTED_PAYLOAD_VERSION = "html-to-figma-plugin-payload-v1";
 const SUPPORTED_BACKEND_IMPORT_PLAN_VERSION = "figma-import-plan-v1";
 const MAX_IMAGE_DIMENSION = 4096;
 const MULTI_LINE_WIDTH_FACTOR = 1.08;
 const MULTI_LINE_MIN_PADDING = 8;
+const REMOTE_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/gif"];
 
 let defaultFontLoaded = false;
 
@@ -292,6 +293,19 @@ function clonePlanPaint(paint) {
   };
 }
 
+function cloneImageFilters(filters) {
+  if (!filters || typeof filters !== "object") return undefined;
+  const result = {};
+  const keys = ["exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows"];
+  for (const key of keys) {
+    const value = Number(filters[key]);
+    if (Number.isFinite(value) && Math.abs(value) > 0.001) {
+      result[key] = clamp(value, -1, 1);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 function clonePlanEffect(effect) {
   if (!effect) return null;
   const clone = {
@@ -464,6 +478,96 @@ function dataUrlToBytes(dataUrl) {
   const data = dataUrl.slice(commaIndex + 1);
   if (!/;base64/i.test(header)) throw new Error("Only base64 data URLs are supported.");
   return figma.base64Decode(data);
+}
+
+function reportProgress(context, message, force) {
+  if (!context || !context.progress) return;
+  const now = Date.now();
+  const total = Math.max(1, context.progress.total || 1);
+  const percent = Math.min(98, Math.max(1, Math.round((context.progress.completed / total) * 96)));
+  if (!force && percent === context.progress.lastPercent && now - context.progress.lastAt < 350) return;
+  context.progress.lastPercent = percent;
+  context.progress.lastAt = now;
+  figma.ui.postMessage({
+    type: "import-progress",
+    percent: percent,
+    message: message || "Importing layers...",
+  });
+}
+
+function advanceProgress(context, amount, message) {
+  if (!context || !context.progress) return;
+  context.progress.completed = Math.min(
+    Math.max(1, context.progress.total || 1),
+    context.progress.completed + Math.max(1, amount || 1)
+  );
+  reportProgress(context, message, false);
+}
+
+function assetFailureLabel(asset) {
+  if (!asset) return "Unknown asset";
+  let host = "";
+  if (asset.url) {
+    try {
+      host = " from " + new URL(asset.url).host;
+    } catch (error) {
+      host = "";
+    }
+  }
+  return String(asset.name || asset.id || "Image asset") + host;
+}
+
+function recordRemoteAssetFailure(context, asset, error) {
+  if (!context || !context.stats) return;
+  const message = error && error.message ? error.message : String(error || "Unknown error");
+  context.stats.remoteAssetFailures += 1;
+  if (context.stats.remoteAssetFailureDetails.length < 5) {
+    context.stats.remoteAssetFailureDetails.push(assetFailureLabel(asset) + ": " + message);
+  }
+}
+
+async function bytesForAsset(asset, context) {
+  if (asset.dataUrl) return dataUrlToBytes(asset.dataUrl);
+  if (!asset.url) return null;
+
+  context.stats.remoteAssetFetches += 1;
+  const response = await fetch(asset.url);
+  if (!response.ok) {
+    throw new Error("Temporary asset could not be downloaded. It may have expired.");
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function createImageForAsset(asset, context) {
+  const mimeType = String(asset.mimeType || "").toLowerCase();
+  if (asset.url && REMOTE_IMAGE_MIME_TYPES.includes(mimeType)) {
+    try {
+      const bytes = await bytesForAsset(asset, context);
+      if (bytes) return figma.createImage(bytes);
+    } catch (error) {
+      if (context.stats.remoteAssetFailureDetails.length < 5) {
+        const message = error && error.message ? error.message : String(error || "Unknown error");
+        context.stats.remoteAssetFailureDetails.push(assetFailureLabel(asset) + " fetch fallback: " + message);
+      }
+    }
+  }
+
+  if (asset.url && REMOTE_IMAGE_MIME_TYPES.includes(mimeType) && typeof figma.createImageAsync === "function") {
+    try {
+      context.stats.remoteAssetFetches += 1;
+      context.stats.remoteAssetAsyncFallbacks += 1;
+      return await figma.createImageAsync(asset.url);
+    } catch (error) {
+      if (context.stats.remoteAssetFailureDetails.length < 5) {
+        const message = error && error.message ? error.message : String(error || "Unknown error");
+        context.stats.remoteAssetFailureDetails.push(assetFailureLabel(asset) + " createImageAsync fallback: " + message);
+      }
+    }
+  }
+
+  const bytes = await bytesForAsset(asset, context);
+  if (!bytes) return null;
+  return figma.createImage(bytes);
 }
 
 function parseVersion(value) {
@@ -895,7 +999,7 @@ async function imageHashForAsset(assetId, context) {
   if (context.imageHashByAssetId.has(assetId)) return context.imageHashByAssetId.get(assetId);
 
   const asset = context.assetById.get(assetId);
-  if (!asset || !asset.dataUrl) {
+  if (!asset || (!asset.dataUrl && !asset.url)) {
     context.stats.missingAssets += 1;
     context.imageHashByAssetId.set(assetId, null);
     return null;
@@ -907,20 +1011,38 @@ async function imageHashForAsset(assetId, context) {
     return null;
   }
 
-  if (asset.mimeType && !["image/png", "image/jpeg", "image/jpg", "image/gif"].includes(asset.mimeType)) {
+  if (asset.mimeType && !REMOTE_IMAGE_MIME_TYPES.includes(String(asset.mimeType).toLowerCase())) {
     context.stats.unsupportedImages += 1;
     context.imageHashByAssetId.set(assetId, null);
     return null;
   }
 
+  const sharedCacheKey = asset.url ? "url:" + asset.url : null;
+  if (sharedCacheKey && context.imageHashByAssetSource.has(sharedCacheKey)) {
+    const cachedHash = context.imageHashByAssetSource.get(sharedCacheKey);
+    context.imageHashByAssetId.set(assetId, cachedHash);
+    return cachedHash;
+  }
+
   try {
-    const image = figma.createImage(dataUrlToBytes(asset.dataUrl));
+    reportProgress(context, "Importing image: " + String(asset.name || asset.id || "asset"), false);
+    const image = await createImageForAsset(asset, context);
+    if (!image) {
+      context.stats.missingAssets += 1;
+      context.imageHashByAssetId.set(assetId, null);
+      if (sharedCacheKey) context.imageHashByAssetSource.set(sharedCacheKey, null);
+      return null;
+    }
     context.stats.images += 1;
     context.imageHashByAssetId.set(assetId, image.hash);
+    if (sharedCacheKey) context.imageHashByAssetSource.set(sharedCacheKey, image.hash);
+    advanceProgress(context, 1, "Imported image: " + String(asset.name || asset.id || "asset"));
     return image.hash;
   } catch (error) {
-    context.stats.unsupportedImages += 1;
+    if (asset.url && !asset.dataUrl) recordRemoteAssetFailure(context, asset, error);
+    else context.stats.unsupportedImages += 1;
     context.imageHashByAssetId.set(assetId, null);
+    if (sharedCacheKey) context.imageHashByAssetSource.set(sharedCacheKey, null);
     return null;
   }
 }
@@ -937,11 +1059,12 @@ async function paintsForNode(payloadNode, context) {
       if (paint.type === "IMAGE") {
         const hash = await imageHashForAsset(paint.assetId, context);
         if (hash) {
-          paints.push({
+          const imagePaint = {
             type: "IMAGE",
             imageHash: hash,
             scaleMode: paint.scaleMode || "FILL",
-          });
+          };
+          paints.push(imagePaint);
         }
       }
     }
@@ -958,11 +1081,12 @@ async function paintsForNode(payloadNode, context) {
     if (paint.type === "IMAGE") {
       const hash = await imageHashForAsset(paint.assetId, context);
       if (hash) {
-        paints.push({
+        const imagePaint = {
           type: "IMAGE",
           imageHash: hash,
           scaleMode: paint.scaleMode || "FILL",
-        });
+        };
+        paints.push(imagePaint);
       }
     }
   }
@@ -1814,6 +1938,7 @@ async function createSceneNode(payloadNode, context) {
   }
 
   context.stats.nodes += 1;
+  advanceProgress(context, 1, "Creating layer: " + String(payloadNode.name || payloadNode.type || "layer"));
   return node;
 }
 
@@ -1847,19 +1972,43 @@ async function appendPayloadChildren(payloadNode, parent, context) {
   }
 }
 
+function countPayloadNodes(payloadNode) {
+  if (!payloadNode || typeof payloadNode !== "object") return 0;
+  let count = payloadNode.type === "DOCUMENT" || payloadNode.type === "PAGE" ? 0 : 1;
+  const children = Array.isArray(payloadNode.children) ? payloadNode.children : [];
+  for (const child of children) {
+    count += countPayloadNodes(child);
+  }
+  return count;
+}
+
 async function importPayload(rawPayload) {
   const payload = normalizePayload(rawPayload);
+  figma.ui.postMessage({ type: "import-progress", percent: 1, message: "Loading current Figma page..." });
   await figma.currentPage.loadAsync();
 
+  const assetCount = Array.isArray(payload.assets) ? payload.assets.length : 0;
+  const nodeCount = countPayloadNodes(payload.document);
   const context = {
     assetById: new Map((payload.assets || []).map((asset) => [asset.id, asset])),
     imageHashByAssetId: new Map(),
+    imageHashByAssetSource: new Map(),
     contentTargetByNode: new Map(),
     visualNodeByContentTarget: new Map(),
+    progress: {
+      completed: 1,
+      total: Math.max(1, nodeCount + assetCount),
+      lastPercent: 1,
+      lastAt: 0,
+    },
     stats: {
       nodes: 0,
       images: 0,
       vectors: 0,
+      remoteAssetFetches: 0,
+      remoteAssetAsyncFallbacks: 0,
+      remoteAssetFailures: 0,
+      remoteAssetFailureDetails: [],
       missingAssets: 0,
       missingImageFills: 0,
       skippedOversizedImages: 0,
@@ -1874,10 +2023,12 @@ async function importPayload(rawPayload) {
   };
 
   const before = figma.currentPage.children.length;
+  reportProgress(context, "Creating Figma layers...", true);
   await appendPayloadChildren(payload.document, figma.currentPage, context);
   const created = figma.currentPage.children.slice(before);
   if (created.length === 0) throw new Error("No importable Figma nodes were found in this payload.");
 
+  figma.ui.postMessage({ type: "import-progress", percent: 99, message: "Selecting imported layers..." });
   figma.currentPage.selection = created;
   figma.viewport.scrollAndZoomIntoView(created);
 
@@ -1886,6 +2037,7 @@ async function importPayload(rawPayload) {
     context.stats.missingImageFills +
     context.stats.skippedOversizedImages +
     context.stats.unsupportedImages +
+    context.stats.remoteAssetFailures +
     context.stats.unsupportedVectors;
   const skippedText = skipped > 0 ? ` ${skipped} image/vector fills need review.` : "";
   const inferredText = context.stats.inferredClips > 0 ? `, ${context.stats.inferredClips} inferred` : "";
@@ -1895,13 +2047,17 @@ async function importPayload(rawPayload) {
   const maskFailureText = context.stats.maskGroupFailures > 0
     ? ` ${context.stats.maskGroupFailures} masks fell back to frame clipping.`
     : "";
-  return `Imported ${created.length} root layer${created.length === 1 ? "" : "s"} with ${context.stats.nodes} nodes and ${context.stats.images} images. Plugin v${PLUGIN_VERSION} (${PLUGIN_BUILD}).${clippingText}${maskFailureText}${skippedText}`;
+  const remoteFailureText = context.stats.remoteAssetFailureDetails.length > 0
+    ? " First remote issue: " + context.stats.remoteAssetFailureDetails[0]
+    : "";
+  return `Imported ${created.length} root layer${created.length === 1 ? "" : "s"} with ${context.stats.nodes} nodes and ${context.stats.images} images. Plugin v${PLUGIN_VERSION} (${PLUGIN_BUILD}).${clippingText}${maskFailureText}${skippedText}${remoteFailureText}`;
 }
 
 figma.ui.onmessage = async (message) => {
   if (!message || message.type !== "import-payload") return;
   try {
     const summary = await importPayload(message.payload);
+    figma.ui.postMessage({ type: "import-progress", percent: 100, message: "Import complete." });
     figma.ui.postMessage({ type: "import-complete", summary });
     figma.notify(summary);
   } catch (error) {

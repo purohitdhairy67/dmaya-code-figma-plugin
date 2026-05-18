@@ -160,9 +160,9 @@
       </div>
 
       <div class="hint">
-        <p>This plugin creates real Figma frames, rectangles, text, vectors, and image-fill rectangles from the payload. Missing remote assets are skipped unless the converter embedded them as data URLs.</p>
+        <p>This plugin creates real Figma frames, rectangles, text, vectors, and image-fill rectangles from the payload. Temporary remote assets are downloaded during import and skipped if they have expired.</p>
       </div>
-      <div class="build">Plugin v0.1.0 · Importer build: backend-import-plan-v15</div>
+      <div class="build">Plugin v0.2.2 · Importer build: remote-assets-v3</div>
       <footer class="attribution">
         Made by dMaya · <a href="https://dmaya.ai" target="_blank" rel="noopener noreferrer">dmaya.ai</a> · Unlimited free forever
       </footer>
@@ -174,11 +174,44 @@
       const successCtaEl = document.getElementById("success-cta");
       const importButton = document.getElementById("import");
       const fileInput = document.getElementById("file");
+      const defaultImportLabel = importButton.textContent;
+      let progressTimer = null;
+      let currentProgress = 0;
 
       function setStatus(message, tone) {
         statusEl.className = "status " + (tone || "");
         statusEl.textContent = message || "";
         successCtaEl.className = "success-cta";
+      }
+
+      function setImportProgress(percent, message) {
+        currentProgress = Math.max(currentProgress, Math.min(100, Math.round(Number(percent) || 0)));
+        importButton.textContent = currentProgress >= 100 ? "Imported 100%" : "Importing " + currentProgress + "%";
+        if (message) setStatus(message, "");
+      }
+
+      function startSoftProgress() {
+        currentProgress = 1;
+        setImportProgress(1, "Importing...");
+        if (progressTimer) window.clearInterval(progressTimer);
+        progressTimer = window.setInterval(() => {
+          if (!importButton.disabled) return;
+          if (currentProgress < 92) {
+            setImportProgress(currentProgress + (currentProgress < 45 ? 3 : 1));
+          }
+        }, 650);
+      }
+
+      function stopSoftProgress() {
+        if (progressTimer) window.clearInterval(progressTimer);
+        progressTimer = null;
+      }
+
+      function resetImportButton() {
+        stopSoftProgress();
+        importButton.disabled = false;
+        importButton.textContent = defaultImportLabel;
+        currentProgress = 0;
       }
 
       document.getElementById("clear").addEventListener("click", () => {
@@ -207,19 +240,25 @@
         }
 
         importButton.disabled = true;
-        setStatus("Importing...", "");
+        startSoftProgress();
         parent.postMessage({ pluginMessage: { type: "import-payload", payload } }, "*");
       });
 
       window.onmessage = (event) => {
         const message = event.data && event.data.pluginMessage;
         if (!message) return;
-        importButton.disabled = false;
+        if (message.type === "import-progress") {
+          setImportProgress(message.percent, message.message);
+          return;
+        }
         if (message.type === "import-complete") {
+          setImportProgress(100, "Import complete.");
+          window.setTimeout(resetImportButton, 400);
           setStatus(message.summary, "ok");
           successCtaEl.className = "success-cta is-visible";
         }
         if (message.type === "import-error") {
+          resetImportButton();
           setStatus(message.message, "bad");
         }
       };

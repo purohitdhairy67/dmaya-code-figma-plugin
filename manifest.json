@@ -7,6 +7,9 @@
   "ui": "ui.html",
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["none"]
+    "allowedDomains": [
+      "https://dmaya-prod-r2.dmaya.ai",
+      "https://dmaya-dev-r2.dmaya.ai"
+    ]
   }
 }

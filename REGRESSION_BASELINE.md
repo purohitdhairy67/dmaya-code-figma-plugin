@@ -2,7 +2,7 @@
 
 Known-good landing-page plugin build: `transparent-overflow-v8`
 
-Current dashboard candidate build: `backend-import-plan-v15`
+Current dashboard candidate build: `remote-assets-v3`
 
 This file pins the behavior that must not regress while improving new layouts such as dashboards.
 
@@ -28,6 +28,8 @@ This file pins the behavior that must not regress while improving new layouts su
 - Inline wrap repair should keep a natural word gap after previous inline fragments.
 - New backend payloads should include `backendImportPlanVersion: "figma-import-plan-v1"` and per-node `importPlan` data for fills, effects, borders, clipping, vectors, layout, and text behavior.
 - The plugin should prefer backend `importPlan` data when present while still importing older payloads through fallback heuristics.
+- Payloads may use temporary remote asset URLs for large images and snapshots. The plugin must fetch those assets during import while keeping old inline `dataUrl` payloads working.
+- Remote image imports should prefer fetching temporary R2 bytes and show progress in the plugin UI while layers/assets are being created.
 
 ## Manual Smoke Areas
 

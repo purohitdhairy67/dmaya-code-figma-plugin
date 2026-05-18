@@ -81,12 +81,22 @@ expect(Array.isArray(manifest.editorType) && manifest.editorType.includes("figma
 expect(manifest.main === "code.js", "manifest main must be code.js.");
 expect(manifest.ui === "ui.html", "manifest ui must be ui.html.");
 expect(manifest.documentAccess === "dynamic-page", "manifest documentAccess must be dynamic-page.");
+const allowedDomains = manifest.networkAccess && Array.isArray(manifest.networkAccess.allowedDomains)
+  ? manifest.networkAccess.allowedDomains
+  : [];
 expect(
-  manifest.networkAccess &&
-    Array.isArray(manifest.networkAccess.allowedDomains) &&
-    manifest.networkAccess.allowedDomains.length === 1 &&
-    manifest.networkAccess.allowedDomains[0] === "none",
-  "manifest networkAccess.allowedDomains must be [\"none\"] for this no-network importer."
+  allowedDomains.length === 2 &&
+    allowedDomains.includes("https://dmaya-prod-r2.dmaya.ai") &&
+    allowedDomains.includes("https://dmaya-dev-r2.dmaya.ai"),
+  "manifest networkAccess.allowedDomains must be limited to the approved dMaya R2 asset domains."
+);
+expect(
+  code.includes("fetch(asset.url)") && code.includes("dataUrlToBytes(asset.dataUrl)"),
+  "code.js must support both temporary remote asset URLs and legacy inline data URLs."
+);
+expect(
+  code.includes("figma.createImageAsync(asset.url)") && code.includes("import-progress"),
+  "code.js must import remote assets through Figma's URL image API and report import progress."
 );
 expect(existsSync(resolve(root, "assets/dmaya-plugin-icon.svg")), "Missing assets/dmaya-plugin-icon.svg.");
 expect(existsSync(resolve(root, "assets/dmaya-plugin-icon.png")), "Missing assets/dmaya-plugin-icon.png.");

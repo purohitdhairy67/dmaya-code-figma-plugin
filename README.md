@@ -4,7 +4,7 @@
 
 Use it for HTML to Figma, URL to Figma, Claude Code to Figma, Lovable to Figma, Cursor to Figma, Bolt to Figma, v0 to Figma, Replit to Figma, and other AI output to Figma workflows where you want editable frames, text, vectors, image fills, borders, shadows, and raster fallbacks instead of a flat screenshot.
 
-The backend owns the conversion logic and emits `figma-import-plan-v1` payloads. This plugin should stay thin: it loads fonts, creates Figma nodes/images/vectors, builds masks/groups, and applies the backend import plan.
+The backend owns the conversion logic and emits `figma-import-plan-v1` payloads. This plugin should stay thin: it loads fonts, creates Figma nodes/images/vectors, fetches temporary dMaya asset URLs when present, builds masks/groups, and applies the backend import plan.
 
 ## Local Development
 

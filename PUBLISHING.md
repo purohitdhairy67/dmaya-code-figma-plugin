@@ -38,7 +38,7 @@ NEXT_PUBLIC_FIGMA_HTML_TO_FIGMA_PLUGIN_URL=<figma-community-plugin-url>
 - Current backend import plan: `figma-import-plan-v1`.
 - Unknown future payload/import-plan versions must fail with an update message.
 - Older payloads without backend import plans may still import through fallback heuristics.
-- The plugin must not make network requests; keep `networkAccess.allowedDomains` as `["none"]`.
+- The plugin may only fetch temporary generated image assets from the approved dMaya R2 asset domains in `networkAccess.allowedDomains`.
 - Figma's manifest supports the plugin menu name, but Community listing assets such as tagline and icon are handled during publishing, so keep `STORE_LISTING.md` and `assets/` in sync.
 
 ## Official References
