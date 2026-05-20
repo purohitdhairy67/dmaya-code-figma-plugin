@@ -2,7 +2,7 @@
 
 Known-good landing-page plugin build: `transparent-overflow-v8`
 
-Current dashboard candidate build: `remote-assets-v3`
+Current dashboard candidate build: `static-decor-v4`
 
 This file pins the behavior that must not regress while improving new layouts such as dashboards.
 
@@ -26,6 +26,12 @@ This file pins the behavior that must not regress while improving new layouts su
 - Stale or union-rect inline text payloads should be defensively split when sibling text already occupies the first line.
 - Text decoration from CSS, especially `line-through`, should become Figma text decoration.
 - Inline wrap repair should keep a natural word gap after previous inline fragments.
+- Icon-font ligatures such as Material Symbols `arrow_forward` should not import as literal merged words when Figma lacks the icon font.
+- Large positioned decorative text should keep its measured browser box instead of auto-resizing into a shifted fallback-font box.
+- Small visual pseudo-elements, such as decorative CTA underlines, should import as positioned layers without changing auto-layout child order.
+- Italic labels and counters should stay italic even when the exact source font family italic face is unavailable in Figma.
+- Simple CSS linear gradients should become editable Figma gradient fills.
+- Containers with CSS box-shadow and no visible fill should still render the shadow in Figma.
 - New backend payloads should include `backendImportPlanVersion: "figma-import-plan-v1"` and per-node `importPlan` data for fills, effects, borders, clipping, vectors, layout, and text behavior.
 - The plugin should prefer backend `importPlan` data when present while still importing older payloads through fallback heuristics.
 - Payloads may use temporary remote asset URLs for large images and snapshots. The plugin must fetch those assets during import while keeping old inline `dataUrl` payloads working.

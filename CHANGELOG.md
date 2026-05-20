@@ -2,7 +2,13 @@
 
 ## 0.2.2
 
-- Current importer build: `remote-assets-v3`.
+- Current importer build: `static-decor-v4`.
+- Material Symbols icon ligatures now import as readable symbol characters when the icon font is unavailable in Figma.
+- Large low-opacity positioned display text now preserves its measured browser text box so decorative background words stay aligned.
+- Safe auto-layout rows now keep browser-measured child order and leave absolute pseudo-elements out of the layout flow.
+- Italic text intent is preserved when the source family lacks an installed italic face.
+- Linear-gradient fills now import as editable Figma gradient fills.
+- Shadow-only containers now get a near-invisible support fill so Figma can render their box shadows.
 - Remote image imports now fetch temporary R2 bytes before falling back to Figma's URL image API.
 - Image fills intentionally skip experimental image filter payloads so real images remain visible across Figma runtimes.
 

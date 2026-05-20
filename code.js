@@ -2,7 +2,7 @@ figma.showUI(__html__, { width: 430, height: 620, themeColors: true });
 
 const DEFAULT_FONT = { family: "Inter", style: "Regular" };
 const PLUGIN_VERSION = "0.2.2";
-const PLUGIN_BUILD = "remote-assets-v3";
+const PLUGIN_BUILD = "static-decor-v4";
 const SUPPORTED_PAYLOAD_VERSION = "html-to-figma-plugin-payload-v1";
 const SUPPORTED_BACKEND_IMPORT_PLAN_VERSION = "figma-import-plan-v1";
 const MAX_IMAGE_DIMENSION = 4096;
@@ -32,8 +32,8 @@ function roundPixel(value) {
   return Math.round(value * 100) / 100;
 }
 
-function fontFamilyFromCss(value) {
-  if (!value || typeof value !== "string") return DEFAULT_FONT.family;
+function fontFamiliesFromCss(value) {
+  if (!value || typeof value !== "string") return [DEFAULT_FONT.family];
   const genericFamilies = new Set([
     "sans-serif",
     "serif",
@@ -48,12 +48,41 @@ function fontFamilyFromCss(value) {
     "segoe ui emoji",
     "segoe ui symbol",
     "noto color emoji",
+    "cursive",
+    "fantasy",
   ]);
   const families = value
     .split(",")
     .map((family) => family.trim().replace(/^["']|["']$/g, ""))
     .filter(Boolean);
-  return families.find((family) => !genericFamilies.has(family.toLowerCase())) || DEFAULT_FONT.family;
+  const concreteFamilies = families.filter((family) => !genericFamilies.has(family.toLowerCase()));
+  return concreteFamilies.length > 0 ? concreteFamilies : [DEFAULT_FONT.family];
+}
+
+function fontFamilyFromCss(value) {
+  return fontFamiliesFromCss(value)[0] || DEFAULT_FONT.family;
+}
+
+function inferredWeightForFamily(family, fallbackWeight) {
+  const source = String(family || "").toLowerCase().replace(/[_-]+/g, " ");
+  let weight = Number(fallbackWeight) || 400;
+  if (/\b(?:black|heavy)\b/.test(source)) weight = 900;
+  else if (/\b(?:extra|ultra)\s*bold\b/.test(source)) weight = 800;
+  else if (/\b(?:semi|demi)\s*bold\b/.test(source) || /\bpn\s*sb\b/.test(source)) weight = 600;
+  else if (/\bbold\b/.test(source)) weight = 700;
+  else if (/\bmedium\b/.test(source)) weight = 500;
+  else if (/\b(?:extra|ultra)\s*light\b/.test(source)) weight = 200;
+  else if (/\blight\b/.test(source)) weight = 300;
+  else if (/\bthin\b/.test(source)) weight = 100;
+  return weight;
+}
+
+function inferredStyleForFamily(family, fallbackStyle) {
+  const source = String(family || "").toLowerCase();
+  const fallback = String(fallbackStyle || "").toLowerCase();
+  if (fallback.includes("italic") || fallback.includes("oblique")) return "italic";
+  if (source.includes("italic") || source.includes("oblique")) return "italic";
+  return "normal";
 }
 
 function interStyleForWeight(weight, fontStyle) {
@@ -70,16 +99,91 @@ function interStyleForWeight(weight, fontStyle) {
   return italic ? `${style} Italic` : style;
 }
 
+function pushUniqueFontCandidate(candidates, seen, family, style) {
+  if (!family || !style) return;
+  const key = String(family) + "\n" + String(style);
+  if (seen[key]) return;
+  seen[key] = true;
+  candidates.push({ family: family, style: style });
+}
+
+function fontStyleNameVariants(cssStyle) {
+  const source = String(cssStyle || DEFAULT_FONT.style);
+  const styles = [];
+  const seen = {};
+  const push = function (style) {
+    if (!style || seen[style]) return;
+    seen[style] = true;
+    styles.push(style);
+  };
+  push(source);
+  push(source.replace(/\s+/g, ""));
+  if (source.endsWith(" Italic")) {
+    const base = source.replace(/\s+Italic$/, "");
+    push(`${base.replace(/\s+/g, "")} Italic`);
+    push(`${base.replace(/\s+/g, "")}Italic`);
+    if (base === "Regular") push("Italic");
+  }
+  if (source === "Regular Italic") push("Italic");
+  return styles;
+}
+
+function pushFontStyleCandidates(candidates, seen, family, style) {
+  for (const variant of fontStyleNameVariants(style)) {
+    pushUniqueFontCandidate(candidates, seen, family, variant);
+  }
+}
+
+function pushHandwritingFontCandidates(candidates, seen, weight, fontStyle) {
+  const italic = String(fontStyle || "").toLowerCase().includes("italic");
+  const style = interStyleForWeight(weight, italic ? "italic" : "normal");
+  const handwritingFamilies = [
+    "FriendlyFont",
+    "Bradley Hand",
+    "Noteworthy",
+    "Marker Felt",
+    "Chalkboard SE",
+    "Comic Sans MS",
+    "Segoe Print",
+  ];
+  for (const family of handwritingFamilies) {
+    pushFontStyleCandidates(candidates, seen, family, style);
+    pushUniqueFontCandidate(candidates, seen, family, italic ? "Italic" : "Regular");
+    pushUniqueFontCandidate(candidates, seen, family, "Regular");
+    pushUniqueFontCandidate(candidates, seen, family, "Light");
+    pushUniqueFontCandidate(candidates, seen, family, "Bold");
+  }
+}
+
 async function loadBestFont(textStyle) {
   await ensureDefaultFont();
-  const cssFamily = fontFamilyFromCss(textStyle && textStyle.fontFamily);
-  const cssStyle = interStyleForWeight(textStyle && textStyle.fontWeight, textStyle && textStyle.fontStyle);
-  const candidates = [
-    { family: cssFamily, style: cssStyle },
-    { family: cssFamily, style: "Regular" },
-    { family: DEFAULT_FONT.family, style: cssStyle },
-    DEFAULT_FONT,
-  ];
+  const cssFamilyValue = textStyle && textStyle.fontFamily;
+  const cssFamilies = fontFamiliesFromCss(cssFamilyValue);
+  const inferredWeight = inferredWeightForFamily(cssFamilyValue, textStyle && textStyle.fontWeight);
+  const inferredStyle = inferredStyleForFamily(cssFamilyValue, textStyle && textStyle.fontStyle);
+  const cssStyle = interStyleForWeight(inferredWeight, inferredStyle);
+  const handwrittenStack = /friendlyfont|cursive|script|handwriting/i.test(String(cssFamilyValue || ""));
+  const candidates = [];
+  const seen = {};
+
+  for (let index = 0; index < cssFamilies.length; index += 1) {
+    const family = cssFamilies[index];
+    const familyWeight = inferredWeightForFamily(family, inferredWeight);
+    const familyStyle = inferredStyleForFamily(family, inferredStyle);
+    pushFontStyleCandidates(candidates, seen, family, interStyleForWeight(familyWeight, familyStyle));
+    if (familyStyle === "italic") {
+      pushUniqueFontCandidate(candidates, seen, family, "Italic");
+      pushUniqueFontCandidate(candidates, seen, family, "Regular Italic");
+    }
+    pushUniqueFontCandidate(candidates, seen, family, "Regular");
+    if (index === 0 && handwrittenStack) {
+      pushHandwritingFontCandidates(candidates, seen, familyWeight, familyStyle);
+    }
+  }
+
+  pushFontStyleCandidates(candidates, seen, DEFAULT_FONT.family, cssStyle);
+  if (inferredStyle === "italic") pushUniqueFontCandidate(candidates, seen, DEFAULT_FONT.family, "Italic");
+  pushUniqueFontCandidate(candidates, seen, DEFAULT_FONT.family, DEFAULT_FONT.style);
 
   for (const candidate of candidates) {
     try {
@@ -92,6 +196,176 @@ async function loadBestFont(textStyle) {
 
   await ensureDefaultFont();
   return DEFAULT_FONT;
+}
+
+function iconLigatureReplacement(value) {
+  const ligatures = {
+    arrow_forward: "→",
+    arrow_back: "←",
+    arrow_upward: "↑",
+    arrow_downward: "↓",
+    north_east: "↗",
+    open_in_new: "↗",
+    location_on: "⌖",
+    schedule: "◷",
+    mail: "✉",
+    close: "×",
+    menu: "☰",
+    add: "+",
+    remove: "−",
+    check: "✓",
+  };
+  return ligatures[value] || value;
+}
+
+function privateUseIconReplacement(value, fontFamily) {
+  const characters = String(value || "");
+  const trimmed = characters.trim();
+  const family = String(fontFamily || "").toLowerCase();
+  if (!trimmed) return characters;
+
+  if (family.indexOf("linearicons") !== -1) {
+    const linearicons = {
+      "\ue613": "⚙",
+      "\ue627": "◉",
+      "\ue673": "⌘",
+      "\ue681": "⌫",
+      "\ue696": "▾",
+      "\ue69f": "▱",
+      "\ue6b3": "☷",
+      "\ue6b4": "▧",
+      "\ue6b5": "▤",
+      "\ue6b8": "▣",
+      "\ue722": "◍",
+      "\ue723": "◷",
+      "\ue726": "⌘",
+      "\ue74f": "−",
+      "\ue750": "◻",
+      "\ue755": "◇",
+      "\ue757": "%",
+      "\ue759": "◌",
+      "\ue789": "◷",
+      "\ue7da": "▴",
+      "\ue7f8": "◷",
+      "\ue884": "→",
+      "\ue8da": "↻",
+      "\ue8ea": "◎",
+      "\ue915": "∞",
+      "\ue93b": "‹",
+      "\ue93c": "›",
+      "\ue944": "!",
+      "\ue994": "→",
+    };
+    return linearicons[trimmed] || (isPrivateUseText(trimmed) ? "•" : characters);
+  }
+
+  if (family.indexOf("ionicons") !== -1 && isPrivateUseText(trimmed)) {
+    const ionicons = {
+      "\uf104": "‹",
+      "\uf122": "→",
+      "\uf124": "→",
+      "\uf128": "→",
+      "\uf12a": "→",
+      "\uf2d7": "⌄",
+    };
+    return ionicons[trimmed] || "•";
+  }
+
+  return characters;
+}
+
+function isPrivateUseText(value) {
+  const characters = String(value || "");
+  if (!characters) return false;
+  for (let index = 0; index < characters.length; index += 1) {
+    const code = characters.charCodeAt(index);
+    if (/\s/.test(characters.charAt(index))) continue;
+    if (code < 0xe000 || code > 0xf8ff) return false;
+  }
+  return true;
+}
+
+function normalizedTextCharacters(payloadNode) {
+  const characters = String(payloadNode.characters || "");
+  const style = payloadNode.textStyle || {};
+  const family = String(style.fontFamily || "").toLowerCase();
+  if (family.indexOf("material symbols") !== -1 || family.indexOf("material icons") !== -1) {
+    return iconLigatureReplacement(characters.trim());
+  }
+  return privateUseIconReplacement(characters, style.fontFamily);
+}
+
+function shouldUseFallbackFontForNormalizedIcon(rawCharacters, normalizedCharacters, fontFamily) {
+  if (String(rawCharacters || "") === String(normalizedCharacters || "")) return false;
+  const family = String(fontFamily || "").toLowerCase();
+  return family.indexOf("material symbols") !== -1 ||
+    family.indexOf("material icons") !== -1 ||
+    family.indexOf("linearicons") !== -1 ||
+    family.indexOf("ionicons") !== -1;
+}
+
+function shouldPreserveMeasuredTextBox(payloadNode) {
+  const css = payloadNode && payloadNode.css ? payloadNode.css : {};
+  const style = payloadNode && payloadNode.textStyle ? payloadNode.textStyle : {};
+  const position = String(css.position || "").toLowerCase();
+  const fontSize = Number(style.fontSize) || 0;
+  const opacity = typeof payloadNode.opacity === "number" ? payloadNode.opacity : 1;
+  const cssColor = parseCssColor(css.color);
+  const colorOpacity = cssColor ? cssColor.opacity : 1;
+
+  return (
+    (position === "absolute" || position === "fixed" || position === "sticky") &&
+    fontSize >= 96 &&
+    (opacity <= 0.6 || colorOpacity <= 0.6)
+  );
+}
+
+function payloadTextLooksSingleLine(payloadNode, characters) {
+  const style = payloadNode && payloadNode.textStyle ? payloadNode.textStyle : {};
+  const lineHeight =
+    typeof style.lineHeight === "number" && style.lineHeight > 0
+      ? style.lineHeight
+      : typeof style.fontSize === "number" && style.fontSize > 0
+        ? style.fontSize * 1.2
+        : 18;
+  return (
+    safeSize(payloadNode && payloadNode.height ? payloadNode.height : lineHeight) <= lineHeight * 1.45 ||
+    String(characters || "").length <= 28 ||
+    !/\s/.test(String(characters || ""))
+  );
+}
+
+function heightTextResizeWidth(node, payloadNode, textPlan, characters) {
+  const plannedWidth = safeSize(textPlan && textPlan.width ? textPlan.width : payloadNode.width);
+  if (!payloadTextLooksSingleLine(payloadNode, characters)) return Math.ceil(plannedWidth + 8);
+
+  node.textAutoResize = "WIDTH_AND_HEIGHT";
+  const naturalWidth = safeSize(node.width);
+  node.textAutoResize = "NONE";
+
+  return Math.ceil(Math.max(plannedWidth, naturalWidth) + 8);
+}
+
+function fitSingleLineTextToBrowserWidth(node, payloadNode, characters) {
+  if (!node || !payloadNode || !payloadNode.width) return;
+  if (!payloadTextLooksSingleLine(payloadNode, characters)) return;
+  if (isPrivateUseText(characters)) return;
+
+  const plannedWidth = safeSize(payloadNode.width);
+  if (plannedWidth <= 1) return;
+
+  const originalResize = node.textAutoResize;
+  node.textAutoResize = "WIDTH_AND_HEIGHT";
+  const naturalWidth = safeSize(node.width);
+  if (naturalWidth <= plannedWidth * 1.04) {
+    node.textAutoResize = originalResize;
+    return;
+  }
+
+  const fontSize = typeof node.fontSize === "number" ? node.fontSize : Number(payloadNode.textStyle && payloadNode.textStyle.fontSize) || 16;
+  const scale = clamp(plannedWidth / naturalWidth, 0.72, 1);
+  node.fontSize = Math.max(1, roundPixel(fontSize * scale));
+  node.textAutoResize = originalResize;
 }
 
 function parseCssColor(value) {
@@ -282,6 +556,23 @@ function cloneSolidPaint(paint) {
 
 function clonePlanPaint(paint) {
   if (!paint || paint.type === "IMAGE") return null;
+  if (paint.type === "GRADIENT_LINEAR") {
+    return {
+      type: "GRADIENT_LINEAR",
+      gradientStops: (paint.gradientStops || []).map(function (stop) {
+        return {
+          position: clamp(stop.position, 0, 1),
+          color: {
+            r: stop.color.r,
+            g: stop.color.g,
+            b: stop.color.b,
+            a: stop.color.a,
+          },
+        };
+      }),
+      gradientTransform: paint.gradientTransform || [[1, 0, 0], [0, 1, 0]],
+    };
+  }
   return {
     type: "SOLID",
     color: {
@@ -291,6 +582,67 @@ function clonePlanPaint(paint) {
     },
     opacity: paint.opacity,
   };
+}
+
+function gradientPaintFromCss(value) {
+  const source = String(value || "");
+  if (!/^linear-gradient/i.test(source)) return null;
+  const body = source.replace(/^linear-gradient\(/i, "").replace(/\)\s*$/, "");
+  const parts = splitCssList(body);
+  const stopParts = parts.filter(function (part, index) {
+    return index > 0 || !/deg|to\s+/i.test(part);
+  });
+  const stops = [];
+  for (let index = 0; index < stopParts.length; index += 1) {
+    const match = stopParts[index].match(/^(.*?)(?:\s+(-?\d*\.?\d+)%)?$/);
+    const colorValue = match ? match[1].trim() : stopParts[index].trim();
+    const parsed = parseCssColor(colorValue);
+    if (!parsed) continue;
+    const explicit = match && match[2] !== undefined ? clamp(parseFloat(match[2]) / 100, 0, 1) : null;
+    stops.push({
+      position: explicit === null ? (stopParts.length <= 1 ? 0 : index / (stopParts.length - 1)) : explicit,
+      color: {
+        r: parsed.color.r,
+        g: parsed.color.g,
+        b: parsed.color.b,
+        a: parsed.opacity,
+      },
+    });
+  }
+  if (stops.length < 2) return null;
+  const degrees = gradientDegreesFromCss(source);
+  const radians = (degrees - 90) * Math.PI / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    type: "GRADIENT_LINEAR",
+    gradientStops: stops,
+    gradientTransform: [[cos, sin, 0], [-sin, cos, 0]],
+  };
+}
+
+function gradientDegreesFromCss(value) {
+  const source = String(value || "");
+  const angleMatch = source.match(/linear-gradient\(\s*(-?\d*\.?\d+)deg/i);
+  if (angleMatch) return parseFloat(angleMatch[1]);
+  const directionMatch = source.match(/linear-gradient\(\s*to\s+([^,]+)/i);
+  if (!directionMatch) return 180;
+  const direction = directionMatch[1].trim().toLowerCase();
+  if (direction === "top") return 0;
+  if (direction === "right") return 90;
+  if (direction === "bottom") return 180;
+  if (direction === "left") return 270;
+  if (direction === "top right" || direction === "right top") return 45;
+  if (direction === "bottom right" || direction === "right bottom") return 135;
+  if (direction === "bottom left" || direction === "left bottom") return 225;
+  if (direction === "top left" || direction === "left top") return 315;
+  return 180;
+}
+
+function imageScaleModeForPayload(payloadNode) {
+  const css = payloadNode && payloadNode.css ? payloadNode.css : {};
+  const objectFit = String(css.objectFit || "").toLowerCase();
+  return objectFit === "contain" || objectFit === "scale-down" ? "FIT" : "FILL";
 }
 
 function cloneImageFilters(filters) {
@@ -771,7 +1123,6 @@ function nodeHasClipBoundary(payloadNode) {
   if (hasVisibleFill(payloadNode)) return true;
   if (hasBorderSides(payloadNode)) return true;
   if (Array.isArray(payloadNode.strokes) && payloadNode.strokes.length > 0) return true;
-  if (Array.isArray(payloadNode.effects) && payloadNode.effects.length > 0) return true;
   if (actualCornerRadiusForNode(payloadNode) > 0) return true;
   return false;
 }
@@ -878,9 +1229,122 @@ function fitAutoLayoutFrameToChildren(frameNode) {
   }
 }
 
+function sortAutoLayoutChildrenByPosition(frameNode, layoutMode) {
+  if (!frameNode || !frameNode.children || frameNode.children.length < 2) return;
+  const autoChildren = frameNode.children.filter(function (child) {
+    return !("layoutPositioning" in child) || child.layoutPositioning !== "ABSOLUTE";
+  });
+  if (autoChildren.length < 2) return;
+  const children = autoChildren.slice();
+  children.sort(function (left, right) {
+    const primaryDelta = layoutMode === "VERTICAL"
+      ? (Number(left.y) || 0) - (Number(right.y) || 0)
+      : (Number(left.x) || 0) - (Number(right.x) || 0);
+    if (Math.abs(primaryDelta) > 0.5) return primaryDelta;
+    return layoutMode === "VERTICAL"
+      ? (Number(left.x) || 0) - (Number(right.x) || 0)
+      : (Number(left.y) || 0) - (Number(right.y) || 0);
+  });
+  for (const child of children) {
+    frameNode.appendChild(child);
+  }
+}
+
+function payloadChildShouldStayAbsolute(child) {
+  const css = child && child.css ? child.css : {};
+  const position = String(css.position || "").toLowerCase();
+  const sourceUid = String(child && child.sourceUid ? child.sourceUid : "");
+  return position === "absolute" || position === "fixed" || sourceUid.indexOf("_pseudo_") !== -1;
+}
+
+function payloadDisplayIsInline(value) {
+  const display = String(value || "").toLowerCase();
+  return display === "inline" || display === "inline-block" || display === "inline-flex";
+}
+
+function prepareAutoLayoutChildren(frameNode, payloadNode, layoutMode) {
+  if (!frameNode || !frameNode.children || frameNode.children.length < 2) return [];
+  const payloadChildren = payloadNode && payloadNode.children ? payloadNode.children : [];
+  const prepared = frameNode.children.map(function (child, index) {
+    const payloadChild = payloadChildren[index] || {};
+    const childName = String(child.name || "").toLowerCase();
+    return {
+      node: child,
+      x: Number(child.x) || 0,
+      y: Number(child.y) || 0,
+      absolute: childName.indexOf(" pseudo") !== -1 || payloadChildShouldStayAbsolute(payloadChild),
+    };
+  });
+
+  prepared.sort(function (left, right) {
+    if (left.absolute !== right.absolute) return left.absolute ? 1 : -1;
+    const primaryDelta = layoutMode === "VERTICAL" ? left.y - right.y : left.x - right.x;
+    if (Math.abs(primaryDelta) > 0.5) return primaryDelta;
+    return layoutMode === "VERTICAL" ? left.x - right.x : left.y - right.y;
+  });
+
+  for (const item of prepared) {
+    frameNode.appendChild(item.node);
+  }
+
+  return prepared;
+}
+
+function applyAutoLayoutChildPositioning(preparedChildren) {
+  for (const item of preparedChildren || []) {
+    const child = item.node;
+    if (!child || !("layoutPositioning" in child)) continue;
+    child.layoutPositioning = item.absolute ? "ABSOLUTE" : "AUTO";
+    if (item.absolute) {
+      child.x = item.x;
+      child.y = item.y;
+    }
+  }
+}
+
+function collectTextFragments(payloadNode, out) {
+  const fragments = out || [];
+  if (payloadNode && payloadNode.type === "TEXT" && payloadNode.characters) {
+    fragments.push(String(payloadNode.characters));
+  }
+  for (const child of payloadNode && payloadNode.children || []) {
+    collectTextFragments(child, fragments);
+  }
+  return fragments;
+}
+
+function hasNonTextVisualContent(payloadNode) {
+  if (!payloadNode) return false;
+  if (payloadNode.type === "IMAGE" || payloadNode.type === "VECTOR" || payloadNode.svg || payloadNode.imageRef) return true;
+  if (hasVisibleFill(payloadNode) || hasVisibleNodeFill(payloadNode) || actualCornerRadiusForNode(payloadNode) > 0) return true;
+  return (payloadNode.children || []).some(function (child) {
+    return hasNonTextVisualContent(child);
+  });
+}
+
+function isInlineTextLikeChild(payloadNode) {
+  return payloadNode &&
+    (payloadNode.type === "TEXT" ||
+      (payloadDisplayIsInline(payloadNode.css && payloadNode.css.display) && !hasNonTextVisualContent(payloadNode)));
+}
+
+function isCompactInlineWordmark(payloadNode, children, display) {
+  if (display !== "inline-flex" && display !== "flex") return false;
+  if (hasVisibleFill(payloadNode) || hasVisibleNodeFill(payloadNode) || actualCornerRadiusForNode(payloadNode) > 0) return false;
+  if (!children || children.length <= 1 || children.length > 4) return false;
+  if (!children.every(isInlineTextLikeChild)) return false;
+  const fragments = collectTextFragments(payloadNode).filter(function (fragment) {
+    return fragment.length > 0;
+  });
+  const combined = fragments.join("");
+  return fragments.length > 1 && combined.length <= 32 && !/\s/.test(combined);
+}
+
 function isAutoLayoutCandidate(payloadNode) {
   if (!payloadNode || !payloadNode.layoutHints || payloadNode.layoutMode !== "HORIZONTAL") return false;
-  const children = payloadNode.children || [];
+  const children = (payloadNode.children || []).filter(function (child) {
+    return !payloadChildShouldStayAbsolute(child);
+  });
   if (children.length === 0 || children.length > 8) return false;
 
   const hints = payloadNode.layoutHints;
@@ -894,13 +1358,21 @@ function isAutoLayoutCandidate(payloadNode) {
   const childWidth = children.reduce((total, child) => total + safeSize(child.width), 0);
   const expectedWidth = childWidth + spacing * Math.max(0, children.length - 1) + paddingX;
   const tightlyPacked = Math.abs(width - expectedWidth) <= 3;
-  const smallChip = display === "inline-flex" && width <= 260 && height <= 48;
+  const inlineTextLogo = isCompactInlineWordmark(payloadNode, children, display);
+  const buttonLikeRow = (display === "flex" || display === "inline-flex") &&
+    alignItems === "center" &&
+    children.length <= 4 &&
+    width <= 420 &&
+    height <= 80 &&
+    (hasVisibleFill(payloadNode) || hasVisibleNodeFill(payloadNode) || actualCornerRadiusForNode(payloadNode) > 0) &&
+    (justifyContent === "center" || tightlyPacked);
+  const smallChip = display === "inline-flex" && width <= 260 && height <= 48 && !inlineTextLogo;
   const smallBulletRow = alignItems === "center" && children.length <= 3 && width <= 280 && height <= 36 && tightlyPacked;
   const sectionEyebrow = alignItems === "center" && children.length <= 3 && width <= 180 && height <= 28 && tightlyPacked;
 
   if (justifyContent === "space-between") return false;
 
-  return smallChip || smallBulletRow || sectionEyebrow;
+  return buttonLikeRow || smallChip || smallBulletRow || sectionEyebrow;
 }
 
 function applyAutoLayoutIfSafe(frameNode, payloadNode) {
@@ -909,29 +1381,32 @@ function applyAutoLayoutIfSafe(frameNode, payloadNode) {
   const plan = importPlanForNode(payloadNode);
   const autoLayoutPlan = plan && plan.layout && plan.layout.autoLayout ? plan.layout.autoLayout : null;
   if (autoLayoutPlan) {
-    if (!autoLayoutPlan.enabled) return false;
-    frameNode.layoutMode = autoLayoutPlan.layoutMode || "HORIZONTAL";
-    frameNode.primaryAxisSizingMode = autoLayoutPlan.primaryAxisSizingMode || "FIXED";
-    frameNode.counterAxisSizingMode = autoLayoutPlan.counterAxisSizingMode || "FIXED";
-    frameNode.primaryAxisAlignItems = autoLayoutPlan.primaryAxisAlignItems || "MIN";
-    frameNode.counterAxisAlignItems = autoLayoutPlan.counterAxisAlignItems || "MIN";
-    frameNode.itemSpacing = Math.max(0, Number(autoLayoutPlan.itemSpacing) || 0);
-    frameNode.paddingTop = Math.max(0, Number(autoLayoutPlan.paddingTop) || 0);
-    frameNode.paddingRight = Math.max(0, Number(autoLayoutPlan.paddingRight) || 0);
-    frameNode.paddingBottom = Math.max(0, Number(autoLayoutPlan.paddingBottom) || 0);
-    frameNode.paddingLeft = Math.max(0, Number(autoLayoutPlan.paddingLeft) || 0);
+    if (autoLayoutPlan.enabled) {
+      const plannedLayoutMode = autoLayoutPlan.layoutMode || "HORIZONTAL";
+      const preparedChildren = prepareAutoLayoutChildren(frameNode, payloadNode, plannedLayoutMode);
+      frameNode.layoutMode = plannedLayoutMode;
+      frameNode.primaryAxisSizingMode = autoLayoutPlan.primaryAxisSizingMode || "FIXED";
+      frameNode.counterAxisSizingMode = autoLayoutPlan.counterAxisSizingMode || "FIXED";
+      frameNode.primaryAxisAlignItems = autoLayoutPlan.primaryAxisAlignItems || "MIN";
+      frameNode.counterAxisAlignItems = autoLayoutPlan.counterAxisAlignItems || "MIN";
+      frameNode.itemSpacing = Math.max(0, Number(autoLayoutPlan.itemSpacing) || 0);
+      frameNode.paddingTop = Math.max(0, Number(autoLayoutPlan.paddingTop) || 0);
+      frameNode.paddingRight = Math.max(0, Number(autoLayoutPlan.paddingRight) || 0);
+      frameNode.paddingBottom = Math.max(0, Number(autoLayoutPlan.paddingBottom) || 0);
+      frameNode.paddingLeft = Math.max(0, Number(autoLayoutPlan.paddingLeft) || 0);
 
-    for (const child of frameNode.children || []) {
-      if ("layoutPositioning" in child) child.layoutPositioning = "AUTO";
+      applyAutoLayoutChildPositioning(preparedChildren);
+
+      fitAutoLayoutFrameToChildren(frameNode);
+      return true;
     }
-
-    fitAutoLayoutFrameToChildren(frameNode);
-    return true;
+    return false;
   }
 
   if (!isAutoLayoutCandidate(payloadNode)) return false;
 
   const hints = payloadNode.layoutHints || {};
+  const preparedChildren = prepareAutoLayoutChildren(frameNode, payloadNode, "HORIZONTAL");
   frameNode.layoutMode = "HORIZONTAL";
   frameNode.primaryAxisSizingMode = "FIXED";
   frameNode.counterAxisSizingMode = "FIXED";
@@ -946,16 +1421,14 @@ function applyAutoLayoutIfSafe(frameNode, payloadNode) {
   frameNode.paddingBottom = Math.max(0, Number(hints.paddingBottom) || 0);
   frameNode.paddingLeft = Math.max(0, Number(hints.paddingLeft) || 0);
 
-  for (const child of frameNode.children || []) {
-    if ("layoutPositioning" in child) child.layoutPositioning = "AUTO";
-  }
+  applyAutoLayoutChildPositioning(preparedChildren);
 
   fitAutoLayoutFrameToChildren(frameNode);
 
   return true;
 }
 
-function payloadTextLooksSingleLine(payloadNode) {
+function payloadFrameTextLooksSingleLine(payloadNode) {
   const child = payloadNode && payloadNode.children && payloadNode.children[0];
   if (!child || child.type !== "TEXT") return false;
   const style = child.textStyle || {};
@@ -984,7 +1457,7 @@ function centerSingleTextChildIfSafe(frameNode, payloadNode) {
       : roundPixel((safeSize(frameNode.height) - safeSize(plannedChild.height)) / 2);
     return;
   }
-  if (!payloadTextLooksSingleLine(payloadNode)) return;
+  if (!payloadFrameTextLooksSingleLine(payloadNode)) return;
 
   const child = frameNode.children[0];
   if (!child || child.type !== "TEXT") return;
@@ -992,6 +1465,31 @@ function centerSingleTextChildIfSafe(frameNode, payloadNode) {
   if (safeSize(child.height) > safeSize(frameNode.height)) return;
 
   child.y = roundPixel((safeSize(frameNode.height) - safeSize(child.height)) / 2);
+}
+
+function centerInlineControlChildrenVertically(frameNode, payloadNode) {
+  if (!frameNode || !frameNode.children || frameNode.children.length < 2) return;
+  if (!payloadNode || !Array.isArray(payloadNode.children) || payloadNode.children.length < 2) return;
+  const css = payloadNode.css || {};
+  const display = String(css.display || "").toLowerCase();
+  const height = safeSize(frameNode.height);
+  if (height > 72 || (display !== "inline" && display !== "inline-block" && display !== "inline-flex")) return;
+  if (!hasVisibleFill(payloadNode) && !hasBorderSides(payloadNode) && actualCornerRadiusForNode(payloadNode) <= 0) return;
+
+  const eligibleChildren = frameNode.children.filter(function (child) {
+    if (!child || child.visible === false) return false;
+    if ("layoutPositioning" in child && child.layoutPositioning === "ABSOLUTE") return false;
+    if (child.type === "TEXT" || child.type === "IMAGE" || child.type === "VECTOR") return true;
+    if (child.type === "FRAME" && child.children && child.children.length === 1) return true;
+    return false;
+  });
+  if (eligibleChildren.length < 2) return;
+
+  for (const child of eligibleChildren) {
+    const childHeight = safeSize(child.height);
+    if (childHeight <= 0 || childHeight > height + 2) continue;
+    child.y = roundPixel((height - childHeight) / 2);
+  }
 }
 
 async function imageHashForAsset(assetId, context) {
@@ -1067,6 +1565,10 @@ async function paintsForNode(payloadNode, context) {
           paints.push(imagePaint);
         }
       }
+      if (paint.type === "GRADIENT_LINEAR") {
+        const gradient = clonePlanPaint(paint);
+        if (gradient) paints.push(gradient);
+      }
     }
     return paints;
   }
@@ -1074,12 +1576,16 @@ async function paintsForNode(payloadNode, context) {
   const opacity = typeof payloadNode.opacity === "number" ? clamp(payloadNode.opacity, 0, 1) : undefined;
 
   for (const paint of payloadNode.fills || []) {
-    if (paint.type === "SOLID") {
-      const solid = solidPaint(paint.color, paint.opacity === undefined ? opacity : paint.opacity);
-      if (solid) paints.push(solid);
-    }
-    if (paint.type === "IMAGE") {
-      const hash = await imageHashForAsset(paint.assetId, context);
+      if (paint.type === "SOLID") {
+        const solid = solidPaint(paint.color, paint.opacity === undefined ? opacity : paint.opacity);
+        if (solid) paints.push(solid);
+      }
+      if (paint.type === "CSS_GRADIENT") {
+        const gradient = gradientPaintFromCss(paint.value);
+        if (gradient) paints.push(gradient);
+      }
+      if (paint.type === "IMAGE") {
+        const hash = await imageHashForAsset(paint.assetId, context);
       if (hash) {
         const imagePaint = {
           type: "IMAGE",
@@ -1093,7 +1599,7 @@ async function paintsForNode(payloadNode, context) {
 
   if (payloadNode.imageRef && !paints.some((paint) => paint.type === "IMAGE")) {
     const hash = await imageHashForAsset(payloadNode.imageRef, context);
-    if (hash) paints.push({ type: "IMAGE", imageHash: hash, scaleMode: "FILL" });
+    if (hash) paints.push({ type: "IMAGE", imageHash: hash, scaleMode: imageScaleModeForPayload(payloadNode) });
   }
 
   return paints;
@@ -1217,6 +1723,26 @@ function hasVisibleFill(payloadNode) {
     const opacity = paint.opacity === undefined ? parsed.opacity : parsed.opacity * clamp(paint.opacity, 0, 1);
     return opacity > 0.001;
   });
+}
+
+function nodeHasVisibleShadow(payloadNode) {
+  const plan = importPlanForNode(payloadNode);
+  if (plan && Array.isArray(plan.effects)) {
+    return plan.effects.some(function (effect) {
+      return effect && (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW");
+    });
+  }
+  return (payloadNode.effects || []).some(function (effect) {
+    return effect && effect.type === "DROP_SHADOW" && effect.value && effect.value !== "none";
+  });
+}
+
+function shadowSupportFill() {
+  return {
+    type: "SOLID",
+    color: { r: 1, g: 1, b: 1 },
+    opacity: 0.01,
+  };
 }
 
 function canUseShadowSpread(sceneNode, payloadNode) {
@@ -1605,8 +2131,12 @@ function visualNodeForPostProcess(node, context) {
 
 async function createTextNode(payloadNode, context) {
   const style = payloadNode.textStyle || {};
-  const fontName = await loadBestFont(style);
-  const characters = String(payloadNode.characters || "");
+  const rawCharacters = String(payloadNode.characters || "");
+  const characters = normalizedTextCharacters(payloadNode);
+  const fontStyle = shouldUseFallbackFontForNormalizedIcon(rawCharacters, characters, style.fontFamily)
+    ? Object.assign({}, style, { fontFamily: DEFAULT_FONT.family, fontWeight: 400, fontStyle: "normal" })
+    : style;
+  const fontName = await loadBestFont(fontStyle);
   const node = figma.createText();
   node.fontName = fontName;
   node.textAutoResize = "NONE";
@@ -1640,6 +2170,22 @@ async function createTextNode(payloadNode, context) {
   if (fills.length) node.fills = fills;
 
   node.characters = characters;
+  fitSingleLineTextToBrowserWidth(node, payloadNode, characters);
+
+  if (shouldPreserveMeasuredTextBox(payloadNode)) {
+    node.resizeWithoutConstraints(safeSize(payloadNode.width), safeSize(payloadNode.height));
+    node.textAutoResize = "NONE";
+    return node;
+  }
+
+  if (textPlan && textPlan.preserveWidth) {
+    node.resizeWithoutConstraints(
+      Math.max(safeSize(textPlan.width || payloadNode.width), 1),
+      Math.max(safeSize(textPlan.height || payloadNode.height), 1)
+    );
+    node.textAutoResize = "HEIGHT";
+    return node;
+  }
 
   if (textPlan && textPlan.resizeMode === "WIDTH_AND_HEIGHT") {
     node.textAutoResize = "WIDTH_AND_HEIGHT";
@@ -1647,8 +2193,9 @@ async function createTextNode(payloadNode, context) {
   }
 
   if (textPlan && textPlan.resizeMode === "HEIGHT") {
+    const resizeWidth = heightTextResizeWidth(node, payloadNode, textPlan, characters);
     node.resizeWithoutConstraints(
-      Math.ceil(safeSize(textPlan.width || payloadNode.width)),
+      resizeWidth,
       Math.max(safeSize(textPlan.height || payloadNode.height), 1)
     );
     node.textAutoResize = "HEIGHT";
@@ -1715,6 +2262,35 @@ async function measureTextWidth(characters, style) {
   if (style && style.lineHeight) text.lineHeight = { unit: "PIXELS", value: clamp(style.lineHeight, 1, 1000) };
   if (style && typeof style.letterSpacing === "number") {
     text.letterSpacing = { unit: "PIXELS", value: style.letterSpacing };
+  }
+  text.characters = String(characters || "");
+  const width = safeSize(text.width);
+  text.remove();
+  return width;
+}
+
+async function measureSceneTextWidth(characters, sourceNode) {
+  const text = figma.createText();
+  text.visible = false;
+  const sourceFont = sourceNode && sourceNode.fontName && typeof sourceNode.fontName === "object"
+    ? sourceNode.fontName
+    : DEFAULT_FONT;
+  try {
+    await figma.loadFontAsync(sourceFont);
+    text.fontName = sourceFont;
+  } catch (error) {
+    await ensureDefaultFont();
+    text.fontName = DEFAULT_FONT;
+  }
+  text.textAutoResize = "WIDTH_AND_HEIGHT";
+  if (sourceNode && typeof sourceNode.fontSize === "number") {
+    text.fontSize = clamp(sourceNode.fontSize, 1, 400);
+  }
+  if (sourceNode && sourceNode.lineHeight && typeof sourceNode.lineHeight === "object" && sourceNode.lineHeight.unit === "PIXELS") {
+    text.lineHeight = { unit: "PIXELS", value: clamp(sourceNode.lineHeight.value, 1, 1000) };
+  }
+  if (sourceNode && sourceNode.letterSpacing && typeof sourceNode.letterSpacing === "object" && sourceNode.letterSpacing.unit === "PIXELS") {
+    text.letterSpacing = { unit: "PIXELS", value: sourceNode.letterSpacing.value };
   }
   text.characters = String(characters || "");
   const width = safeSize(text.width);
@@ -1861,6 +2437,164 @@ async function repairedChildrenForPayload(payloadNode) {
   return repaired;
 }
 
+function payloadInlineTextContent(payloadNode) {
+  if (!payloadNode) return "";
+  if (payloadNode.type === "TEXT") return String(payloadNode.characters || "");
+  const css = payloadNode.css || {};
+  const display = String(css.display || "").toLowerCase();
+  if (display && display.indexOf("inline") !== 0) return "";
+  let text = "";
+  for (const child of payloadNode.children || []) {
+    text += payloadInlineTextContent(child);
+  }
+  return text;
+}
+
+function payloadHasDirectInlineWhitespaceBoundary(payloadNode) {
+  const children = payloadNode && Array.isArray(payloadNode.children) ? payloadNode.children : [];
+  if (children.length < 2) return false;
+  let hasBoundarySpace = false;
+  let textChildCount = 0;
+  for (const child of children) {
+    const text = payloadInlineTextContent(child);
+    if (!text.trim()) continue;
+    textChildCount += 1;
+    if (/\s$/.test(text)) hasBoundarySpace = true;
+  }
+  return hasBoundarySpace && textChildCount >= 2;
+}
+
+function collectInlineTextSegmentsFromNode(node, root, baseX, baseY, segments) {
+  if (!node || node.visible === false) return;
+  const x = baseX + (Number(node.x) || 0);
+  const y = baseY + (Number(node.y) || 0);
+  if (node.type === "TEXT") {
+    const characters = String(node.characters || "");
+    if (characters.trim()) {
+      segments.push({
+        node: node,
+        root: root,
+        x: x,
+        y: y,
+        width: safeSize(node.width),
+        height: safeSize(node.height),
+        characters: characters,
+      });
+    }
+    return;
+  }
+  if (!("children" in node) || !node.children) return;
+  for (const child of node.children) {
+    collectInlineTextSegmentsFromNode(child, root, x, y, segments);
+  }
+}
+
+function collectInlineTextSegments(parent) {
+  const segments = [];
+  if (!parent || !parent.children) return segments;
+  for (const child of parent.children) {
+    collectInlineTextSegmentsFromNode(child, child, 0, 0, segments);
+  }
+  return segments;
+}
+
+function inlineSegmentsSameLine(left, right) {
+  if (!left || !right) return false;
+  const top = Math.max(left.y, right.y);
+  const bottom = Math.min(left.y + left.height, right.y + right.height);
+  const overlap = bottom - top;
+  const minHeight = Math.min(left.height, right.height);
+  const leftCenter = left.y + left.height / 2;
+  const rightCenter = right.y + right.height / 2;
+  return overlap >= minHeight * 0.42 || Math.abs(leftCenter - rightCenter) <= Math.max(3, minHeight * 0.32);
+}
+
+function shiftTargetForInlineSegment(segment) {
+  if (!segment || !segment.node) return null;
+  if (segment.node === segment.root) return segment.node;
+  const localX = Number(segment.node.x) || 0;
+  if (Math.abs(localX) <= 0.5) return segment.root;
+  return segment.node;
+}
+
+function resizeInlineRootToContain(segment) {
+  if (!segment || !segment.root || segment.node === segment.root) return;
+  if (!("resizeWithoutConstraints" in segment.root)) return;
+  if ("layoutMode" in segment.root && segment.root.layoutMode !== "NONE") return;
+  const localRight = (Number(segment.node.x) || 0) + safeSize(segment.node.width);
+  if (localRight <= safeSize(segment.root.width) + 0.5) return;
+  segment.root.resizeWithoutConstraints(roundPixel(localRight), safeSize(segment.root.height));
+}
+
+function shiftInlineSegment(segment, delta, shiftedTargets) {
+  const target = shiftTargetForInlineSegment(segment);
+  if (!target || shiftedTargets.indexOf(target) !== -1) return;
+  target.x = roundPixel((Number(target.x) || 0) + delta);
+  shiftedTargets.push(target);
+  resizeInlineRootToContain(segment);
+}
+
+async function inlineSpaceMetrics(segment) {
+  const characters = String(segment.characters || "");
+  if (!/\s$/.test(characters)) return null;
+  const trimmed = characters.replace(/\s+$/g, "");
+  if (!trimmed) return null;
+  const trimmedWidth = await measureSceneTextWidth(trimmed, segment.node);
+  const fullWidth = await measureSceneTextWidth(characters, segment.node);
+  const fontSize = typeof segment.node.fontSize === "number" ? segment.node.fontSize : 16;
+  const fallbackSpace = Math.max(2, Math.min(18, fontSize * 0.22));
+  const measuredSpace = Math.max(0, fullWidth - trimmedWidth);
+  return {
+    visibleRight: segment.x + trimmedWidth,
+    spaceWidth: Math.max(fallbackSpace, measuredSpace),
+  };
+}
+
+async function repairInlineBoundarySpacing(parent, payloadNode) {
+  if (!payloadHasDirectInlineWhitespaceBoundary(payloadNode)) return false;
+  if (!parent || !parent.children || parent.children.length < 2) return false;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const segments = collectInlineTextSegments(parent).sort(function (left, right) {
+      const yDelta = left.y - right.y;
+      if (Math.abs(yDelta) > 2) return yDelta;
+      return left.x - right.x;
+    });
+    let changed = false;
+
+    for (const segment of segments) {
+      if (!/\s$/.test(String(segment.characters || ""))) continue;
+      const metrics = await inlineSpaceMetrics(segment);
+      if (!metrics) continue;
+      let next = null;
+      for (const candidate of segments) {
+        if (candidate === segment) continue;
+        if (candidate.x <= segment.x + 1) continue;
+        if (!inlineSegmentsSameLine(segment, candidate)) continue;
+        if (!next || candidate.x < next.x) next = candidate;
+      }
+      if (!next) continue;
+
+      const desiredLeft = metrics.visibleRight + metrics.spaceWidth;
+      if (next.x >= desiredLeft - 0.5) continue;
+
+      const delta = roundPixel(desiredLeft - next.x);
+      const shiftedTargets = [];
+      for (const candidate of segments) {
+        if (candidate.x < next.x - 0.5) continue;
+        if (!inlineSegmentsSameLine(next, candidate)) continue;
+        shiftInlineSegment(candidate, delta, shiftedTargets);
+      }
+      changed = shiftedTargets.length > 0;
+      if (changed) break;
+    }
+
+    if (!changed) return attempt > 0;
+  }
+
+  return true;
+}
+
 async function createSvgNode(payloadNode, context) {
   if (!payloadNode.svg) return null;
   try {
@@ -1913,7 +2647,7 @@ async function createSceneNode(payloadNode, context) {
 
   applyCommonProperties(node, payloadNode);
   const fills = await paintsForNode(payloadNode, context);
-  if ("fills" in node) node.fills = fills;
+  if ("fills" in node) node.fills = fills.length || !nodeHasVisibleShadow(payloadNode) ? fills : [shadowSupportFill()];
   applyStrokes(node, payloadNode);
   const hasContentClip = shouldCreateContentClipFrame(payloadNode, node);
   applyClipBehavior(node, payloadNode, hasContentClip);
@@ -1965,6 +2699,8 @@ async function appendPayloadChildren(payloadNode, parent, context) {
       sealContentClipFrame(parent, payloadNode, context);
       applyClipBehavior(visualParent, payloadNode, true);
     } else {
+      await repairInlineBoundarySpacing(parent, payloadNode);
+      centerInlineControlChildrenVertically(parent, payloadNode);
       centerSingleTextChildIfSafe(parent, payloadNode);
       applyAutoLayoutIfSafe(parent, payloadNode);
       applyClipBehavior(parent, payloadNode, false);
