@@ -84,11 +84,24 @@ expect(manifest.documentAccess === "dynamic-page", "manifest documentAccess must
 const allowedDomains = manifest.networkAccess && Array.isArray(manifest.networkAccess.allowedDomains)
   ? manifest.networkAccess.allowedDomains
   : [];
+const devAllowedDomains = manifest.networkAccess && Array.isArray(manifest.networkAccess.devAllowedDomains)
+  ? manifest.networkAccess.devAllowedDomains
+  : [];
 expect(
-  allowedDomains.length === 2 &&
-    allowedDomains.includes("https://dmaya-prod-r2.dmaya.ai") &&
-    allowedDomains.includes("https://dmaya-dev-r2.dmaya.ai"),
-  "manifest networkAccess.allowedDomains must be limited to the approved dMaya R2 asset domains."
+  allowedDomains.length === 1 &&
+    allowedDomains.includes("https://dmaya-prod-r2.dmaya.ai"),
+  "manifest networkAccess.allowedDomains must be limited to the production dMaya R2 asset domain."
+);
+expect(
+  devAllowedDomains.length === 1 &&
+    devAllowedDomains.includes("https://dmaya-dev-r2.dmaya.ai"),
+  "manifest networkAccess.devAllowedDomains must include the development dMaya R2 asset domain."
+);
+expect(
+  typeof manifest.networkAccess.reasoning === "string" &&
+    manifest.networkAccess.reasoning.includes("temporary image assets") &&
+    manifest.networkAccess.reasoning.includes("does not upload existing Figma file content"),
+  "manifest networkAccess.reasoning must explain temporary asset downloads and no Figma file upload."
 );
 expect(
   code.includes("fetch(asset.url)") && code.includes("dataUrlToBytes(asset.dataUrl)"),

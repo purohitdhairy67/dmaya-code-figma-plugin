@@ -2,6 +2,8 @@
 
 Use this checklist for every Figma Community release.
 
+Live plugin URL: https://www.figma.com/community/plugin/1636043816834712802
+
 ## First Publish
 
 1. Run `npm run check`.
@@ -18,7 +20,7 @@ Use this checklist for every Figma Community release.
 9. After approval, set the frontend environment variable:
 
 ```bash
-NEXT_PUBLIC_FIGMA_HTML_TO_FIGMA_PLUGIN_URL=<figma-community-plugin-url>
+NEXT_PUBLIC_FIGMA_HTML_TO_FIGMA_PLUGIN_URL=https://www.figma.com/community/plugin/1636043816834712802
 ```
 
 ## Update Flow
@@ -27,10 +29,12 @@ NEXT_PUBLIC_FIGMA_HTML_TO_FIGMA_PLUGIN_URL=<figma-community-plugin-url>
 2. Update `package.json`, `ui.html`, `CHANGELOG.md`, and `REGRESSION_BASELINE.md`.
 3. If the backend payload shape changes, update the compatibility constants in `code.js`.
 4. If old plugins must refuse the new backend payload, bump `minPluginVersion` in the backend payload.
-5. Run `npm run check`.
-6. Run `npm run pack`.
-7. Import locally in Figma and smoke-test.
-8. Publish the update from Figma desktop.
+5. Confirm `manifest.json` network access still lists only the production asset domain in `allowedDomains`, with development domains in `devAllowedDomains`.
+6. Confirm the Figma listing privacy policy URL is `https://dmaya.ai/privacy` and the network access disclosure matches `STORE_LISTING.md`.
+7. Run `npm run check`.
+8. Run `npm run pack`.
+9. Import locally in Figma and smoke-test.
+10. Publish the update from Figma.
 
 ## Compatibility Policy
 
@@ -38,7 +42,9 @@ NEXT_PUBLIC_FIGMA_HTML_TO_FIGMA_PLUGIN_URL=<figma-community-plugin-url>
 - Current backend import plan: `figma-import-plan-v1`.
 - Unknown future payload/import-plan versions must fail with an update message.
 - Older payloads without backend import plans may still import through fallback heuristics.
-- The plugin may only fetch temporary generated image assets from the approved dMaya R2 asset domains in `networkAccess.allowedDomains`.
+- Production network access may only fetch temporary generated image assets from `https://dmaya-prod-r2.dmaya.ai`.
+- Development-only asset domains belong in `networkAccess.devAllowedDomains`, not production `allowedDomains`.
+- The manifest `networkAccess.reasoning` must say the plugin downloads temporary generated image assets and does not upload existing Figma file content or user designs to dMaya.
 - Figma's manifest supports the plugin menu name, but Community listing assets such as tagline and icon are handled during publishing, so keep `STORE_LISTING.md` and `assets/` in sync.
 
 ## Official References

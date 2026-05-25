@@ -2,7 +2,7 @@
 
 Known-good landing-page plugin build: `transparent-overflow-v8`
 
-Current dashboard candidate build: `static-decor-v4`
+Current dashboard candidate build: `remote-assets-v4-static-decor-v4`
 
 This file pins the behavior that must not regress while improving new layouts such as dashboards.
 
@@ -36,6 +36,7 @@ This file pins the behavior that must not regress while improving new layouts su
 - The plugin should prefer backend `importPlan` data when present while still importing older payloads through fallback heuristics.
 - Payloads may use temporary remote asset URLs for large images and snapshots. The plugin must fetch those assets during import while keeping old inline `dataUrl` payloads working.
 - Remote image imports should prefer fetching temporary R2 bytes and show progress in the plugin UI while layers/assets are being created.
+- Backend `remote-assets-v4` payloads may keep small normalized PNG assets inline while offloading larger images to temporary R2 URLs; the plugin must continue importing both in the same payload.
 
 ## Manual Smoke Areas
 

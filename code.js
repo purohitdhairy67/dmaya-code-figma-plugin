@@ -1,8 +1,8 @@
 figma.showUI(__html__, { width: 430, height: 620, themeColors: true });
 
 const DEFAULT_FONT = { family: "Inter", style: "Regular" };
-const PLUGIN_VERSION = "0.2.2";
-const PLUGIN_BUILD = "static-decor-v4";
+const PLUGIN_VERSION = "0.2.3";
+const PLUGIN_BUILD = "remote-assets-v4-static-decor-v4";
 const SUPPORTED_PAYLOAD_VERSION = "html-to-figma-plugin-payload-v1";
 const SUPPORTED_BACKEND_IMPORT_PLAN_VERSION = "figma-import-plan-v1";
 const MAX_IMAGE_DIMENSION = 4096;

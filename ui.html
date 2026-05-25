@@ -105,6 +105,32 @@
         padding: 10px;
       }
 
+      .steps {
+        margin-top: 12px;
+        border-top: 1px solid #e7e5e4;
+        padding-top: 12px;
+      }
+
+      .steps-title {
+        margin: 0 0 6px;
+        color: #292524;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      .steps ol {
+        margin: 0;
+        padding-left: 18px;
+        color: #57534e;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .steps li + li {
+        margin-top: 4px;
+      }
+
       .build {
         margin-top: 8px;
         color: #78716c;
@@ -162,7 +188,16 @@
       <div class="hint">
         <p>This plugin creates real Figma frames, rectangles, text, vectors, and image-fill rectangles from the payload. Temporary remote assets are downloaded during import and skipped if they have expired.</p>
       </div>
-      <div class="build">Plugin v0.2.2 · Importer build: static-decor-v4</div>
+      <section class="steps" aria-label="How to use">
+        <div class="steps-title">How to use</div>
+        <ol>
+          <li>Open <a href="https://dmaya.ai/html-to-figma" target="_blank" rel="noopener noreferrer">dmaya.ai/html-to-figma</a>.</li>
+          <li>Paste a URL, HTML file, or AI-generated HTML and run the converter.</li>
+          <li>Download or copy the generated JSON payload.</li>
+          <li>Paste or upload that JSON here, then click Import into current page.</li>
+        </ol>
+      </section>
+      <div class="build">Plugin v0.2.3 · Importer build: remote-assets-v4-static-decor-v4</div>
       <footer class="attribution">
         Made by dMaya · <a href="https://dmaya.ai" target="_blank" rel="noopener noreferrer">dmaya.ai</a> · Unlimited free forever
       </footer>

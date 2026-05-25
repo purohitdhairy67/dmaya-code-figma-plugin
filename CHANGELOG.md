@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+- Current importer build: `remote-assets-v4-static-decor-v4`.
+- Aligns the plugin with backend `remote-assets-v4` payloads.
+- Keeps remote asset import behavior compatible while allowing the backend to inline small normalized PNG assets and reserve temporary R2 URLs for large images.
+
 ## 0.2.2
 
 - Current importer build: `static-decor-v4`.

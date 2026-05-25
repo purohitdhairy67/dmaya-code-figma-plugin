@@ -1,10 +1,12 @@
 # HTML to Figma by dMaya
 
-[HTML to Figma by dMaya](https://dmaya.ai/html-to-figma) is a free Figma plugin for turning HTML, public URLs, single-file frontends, and AI-generated UI output into editable Figma layers from [dMaya](https://dmaya.ai).
+[HTML to Figma by dMaya](https://dmaya.ai/html-to-figma) is a free Figma plugin for turning HTML, public URLs, single-file frontends, and AI-generated UI output into editable Figma layers from [dMaya](https://dmaya.ai). Install the live plugin from [Figma Community](https://www.figma.com/community/plugin/1636043816834712802).
 
 Use it for HTML to Figma, URL to Figma, Claude Code to Figma, Lovable to Figma, Cursor to Figma, Bolt to Figma, v0 to Figma, Replit to Figma, and other AI output to Figma workflows where you want editable frames, text, vectors, image fills, borders, shadows, and raster fallbacks instead of a flat screenshot.
 
 The backend owns the conversion logic and emits `figma-import-plan-v1` payloads. This plugin should stay thin: it loads fonts, creates Figma nodes/images/vectors, fetches temporary dMaya asset URLs when present, builds masks/groups, and applies the backend import plan.
+
+The published plugin only connects to `https://dmaya-prod-r2.dmaya.ai` to download temporary generated image assets referenced by a pasted payload. It does not upload existing Figma file content or user designs to dMaya. The public privacy policy is at [dmaya.ai/privacy](https://dmaya.ai/privacy).
 
 ## Local Development
 
@@ -29,7 +31,7 @@ The plugin must remain compatible with Figma's older JavaScript parser. Do not u
 npm run pack
 ```
 
-This creates `dist/dmaya-html-to-figma-plugin.zip` for manual release testing. Production users should install from the Figma Community listing once published; the frontend should link to that store URL, not to a hosted zip.
+This creates `dist/dmaya-html-to-figma-plugin.zip` for manual release testing. Production users should install from the [Figma Community listing](https://www.figma.com/community/plugin/1636043816834712802); the frontend should link to that store URL, not to a hosted zip.
 
 See `PUBLISHING.md` and `STORE_LISTING.md` before submitting the first Community build or any update.
 
