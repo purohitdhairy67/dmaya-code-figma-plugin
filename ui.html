@@ -45,6 +45,25 @@
         font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
 
+      .payload-url {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .payload-url input {
+        box-sizing: border-box;
+        min-width: 0;
+        min-height: 38px;
+        border: 1px solid #d6d3d1;
+        border-radius: 8px;
+        padding: 0 10px;
+        background: #ffffff;
+        color: #292524;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
       .actions {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -72,6 +91,17 @@
         border-color: #059669;
         background: #059669;
         color: #ffffff;
+      }
+
+      button.verify {
+        grid-column: 1 / -1;
+        border-color: #0f766e;
+        background: #f0fdfa;
+        color: #115e59;
+      }
+
+      button.secondary {
+        grid-column: 1 / -1;
       }
 
       button:disabled {
@@ -149,6 +179,29 @@
         display: block;
       }
 
+      .export-result {
+        display: none;
+        margin-top: 10px;
+        border-radius: 8px;
+        border: 1px solid #ccfbf1;
+        background: #f0fdfa;
+        padding: 10px;
+        color: #115e59;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .export-result.is-visible {
+        display: block;
+      }
+
+      .export-result a {
+        display: inline-flex;
+        margin-top: 6px;
+        color: #0f766e;
+        font-weight: 700;
+      }
+
       a {
         color: #047857;
         text-decoration: none;
@@ -173,14 +226,23 @@
 
       <textarea id="payload" spellcheck="false" placeholder="Paste dMaya plugin payload or full conversion JSON here..."></textarea>
 
+      <div class="payload-url">
+        <input id="payload-url" type="url" spellcheck="false" placeholder="http://localhost:8765/payload.json" />
+        <button id="load-url" type="button">Load URL</button>
+      </div>
+
       <div class="actions">
         <label for="file">Upload JSON</label>
         <button id="clear" type="button">Clear</button>
         <button id="import" class="primary" type="button">Import into current page</button>
+        <button id="import-export" class="verify" type="button">Import + export PNG</button>
+        <button id="cancel-import" class="secondary" type="button" disabled>Cancel import</button>
+        <button id="export-selected" class="secondary" type="button">Export selected PNG</button>
       </div>
 
       <input id="file" type="file" accept=".json,application/json" />
       <div id="status" class="status"></div>
+      <div id="export-result" class="export-result"></div>
       <div id="success-cta" class="success-cta">
         Try the full design tool at <a href="https://dmaya.ai" target="_blank" rel="noopener noreferrer">dmaya.ai</a>
       </div>
@@ -197,7 +259,7 @@
           <li>Paste or upload that JSON here, then click Import into current page.</li>
         </ol>
       </section>
-      <div class="build">Plugin v0.2.3 · Importer build: remote-assets-v4-static-decor-v4</div>
+      <div class="build">Plugin v0.2.3 · Importer build: render-ir-export-v6</div>
       <footer class="attribution">
         Made by dMaya · <a href="https://dmaya.ai" target="_blank" rel="noopener noreferrer">dmaya.ai</a> · Unlimited free forever
       </footer>
@@ -207,21 +269,38 @@
       const textarea = document.getElementById("payload");
       const statusEl = document.getElementById("status");
       const successCtaEl = document.getElementById("success-cta");
+      const exportResultEl = document.getElementById("export-result");
       const importButton = document.getElementById("import");
+      const importExportButton = document.getElementById("import-export");
+      const cancelImportButton = document.getElementById("cancel-import");
+      const exportSelectedButton = document.getElementById("export-selected");
+      const payloadUrlInput = document.getElementById("payload-url");
+      const loadUrlButton = document.getElementById("load-url");
       const fileInput = document.getElementById("file");
       const defaultImportLabel = importButton.textContent;
+      const defaultImportExportLabel = importExportButton.textContent;
+      const defaultExportSelectedLabel = exportSelectedButton.textContent;
       let progressTimer = null;
       let currentProgress = 0;
+      let activeAction = "import";
+      const localVerificationUrl = "http://localhost:8765/payload.json";
 
       function setStatus(message, tone) {
         statusEl.className = "status " + (tone || "");
         statusEl.textContent = message || "";
         successCtaEl.className = "success-cta";
+        exportResultEl.className = "export-result";
+        exportResultEl.textContent = "";
       }
 
       function setImportProgress(percent, message) {
         currentProgress = Math.max(currentProgress, Math.min(100, Math.round(Number(percent) || 0)));
-        importButton.textContent = currentProgress >= 100 ? "Imported 100%" : "Importing " + currentProgress + "%";
+        const label = currentProgress >= 100 ? "Imported 100%" : "Importing " + currentProgress + "%";
+        if (activeAction === "export") {
+          importExportButton.textContent = currentProgress >= 100 ? "Exporting PNG..." : label;
+        } else {
+          importButton.textContent = label;
+        }
         if (message) setStatus(message, "");
       }
 
@@ -245,8 +324,25 @@
       function resetImportButton() {
         stopSoftProgress();
         importButton.disabled = false;
+        importExportButton.disabled = false;
+        cancelImportButton.disabled = true;
+        exportSelectedButton.disabled = false;
+        loadUrlButton.disabled = false;
         importButton.textContent = defaultImportLabel;
+        importExportButton.textContent = defaultImportExportLabel;
+        exportSelectedButton.textContent = defaultExportSelectedLabel;
         currentProgress = 0;
+        activeAction = "import";
+      }
+
+      function beginImportAction(action) {
+        importButton.disabled = true;
+        importExportButton.disabled = true;
+        cancelImportButton.disabled = false;
+        exportSelectedButton.disabled = true;
+        loadUrlButton.disabled = true;
+        activeAction = action || "import";
+        startSoftProgress();
       }
 
       document.getElementById("clear").addEventListener("click", () => {
@@ -265,19 +361,136 @@
         }
       });
 
-      importButton.addEventListener("click", () => {
+      async function loadPayloadFromUrl(url) {
+        if (!url) {
+          setStatus("Enter a payload JSON URL first.", "bad");
+          return null;
+        }
+        loadUrlButton.disabled = true;
+        setStatus("Loading payload JSON...", "");
+        try {
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          textarea.value = await response.text();
+          const payload = JSON.parse(textarea.value);
+          setStatus("Payload loaded from URL.", "ok");
+          return payload;
+        } catch (error) {
+          const message = error && error.message ? error.message : "Could not load payload URL.";
+          setStatus("Could not load payload URL: " + message, "bad");
+          return null;
+        } finally {
+          loadUrlButton.disabled = false;
+        }
+      }
+
+      loadUrlButton.addEventListener("click", async () => {
+        await loadPayloadFromUrl(payloadUrlInput.value.trim());
+      });
+
+      async function autoRunLocalVerification() {
+        payloadUrlInput.value = localVerificationUrl;
+        const payload = await loadPayloadFromUrl(localVerificationUrl);
+        if (!payload) return;
+        beginImportAction("export");
+        parent.postMessage({
+          pluginMessage: {
+            type: "import-payload-and-export",
+            payload,
+            exportSettings: {
+              constraint: {
+                type: "SCALE",
+                value: 1,
+              },
+            },
+          },
+        }, "*");
+      }
+
+      window.setTimeout(autoRunLocalVerification, 500);
+
+      function readPayloadFromTextarea() {
         let payload;
         try {
           payload = JSON.parse(textarea.value);
         } catch (error) {
           setStatus("Paste valid JSON first.", "bad");
-          return;
+          return null;
         }
+        return payload;
+      }
 
-        importButton.disabled = true;
-        startSoftProgress();
+      importButton.addEventListener("click", () => {
+        const payload = readPayloadFromTextarea();
+        if (!payload) return;
+
+        beginImportAction("import");
         parent.postMessage({ pluginMessage: { type: "import-payload", payload } }, "*");
       });
+
+      importExportButton.addEventListener("click", () => {
+        const payload = readPayloadFromTextarea();
+        if (!payload) return;
+
+        beginImportAction("export");
+        parent.postMessage({
+          pluginMessage: {
+            type: "import-payload-and-export",
+            payload,
+            exportSettings: {
+              constraint: {
+                type: "SCALE",
+                value: 1,
+              },
+            },
+          },
+        }, "*");
+      });
+
+      cancelImportButton.addEventListener("click", () => {
+        cancelImportButton.disabled = true;
+        setStatus("Cancelling import...", "");
+        parent.postMessage({ pluginMessage: { type: "cancel-import" } }, "*");
+      });
+
+      exportSelectedButton.addEventListener("click", () => {
+        importButton.disabled = true;
+        importExportButton.disabled = true;
+        cancelImportButton.disabled = true;
+        exportSelectedButton.disabled = true;
+        loadUrlButton.disabled = true;
+        exportSelectedButton.textContent = "Exporting PNG...";
+        setStatus("Exporting selected Figma node...", "");
+        parent.postMessage({
+          pluginMessage: {
+            type: "export-selected-png",
+            exportSettings: {
+              constraint: {
+                type: "SCALE",
+                value: 1,
+              },
+            },
+          },
+        }, "*");
+      });
+
+      function showExportResult(message) {
+        const exported = message.export || {};
+        const dataUrl = exported.dataUrl || "";
+        exportResultEl.className = "export-result is-visible";
+        exportResultEl.textContent = "";
+        const text = document.createElement("div");
+        text.textContent = "PNG export ready: " + (exported.nodeName || "Imported frame");
+        exportResultEl.appendChild(text);
+        if (dataUrl) {
+          const link = document.createElement("a");
+          link.href = dataUrl;
+          link.download = "dmaya-html-to-figma-export.png";
+          link.textContent = "Download PNG export";
+          exportResultEl.appendChild(link);
+          window.setTimeout(() => link.click(), 50);
+        }
+      }
 
       window.onmessage = (event) => {
         const message = event.data && event.data.pluginMessage;
@@ -290,6 +503,13 @@
           setImportProgress(100, "Import complete.");
           window.setTimeout(resetImportButton, 400);
           setStatus(message.summary, "ok");
+          successCtaEl.className = "success-cta is-visible";
+        }
+        if (message.type === "import-export-complete") {
+          setImportProgress(100, "Export complete.");
+          window.setTimeout(resetImportButton, 400);
+          setStatus(message.summary, "ok");
+          showExportResult(message);
           successCtaEl.className = "success-cta is-visible";
         }
         if (message.type === "import-error") {

@@ -4,7 +4,7 @@
 
 Use it for HTML to Figma, URL to Figma, Claude Code to Figma, Lovable to Figma, Cursor to Figma, Bolt to Figma, v0 to Figma, Replit to Figma, and other AI output to Figma workflows where you want editable frames, text, vectors, image fills, borders, shadows, and raster fallbacks instead of a flat screenshot.
 
-The backend owns the conversion logic and emits `figma-import-plan-v1` payloads. This plugin should stay thin: it loads fonts, creates Figma nodes/images/vectors, fetches temporary dMaya asset URLs when present, builds masks/groups, and applies the backend import plan.
+The backend owns the conversion logic and emits `figma-import-plan-v1` payloads, including experimental Render IR payloads behind internal backend flags. This plugin should stay thin: it loads fonts, creates Figma nodes/images/vectors, fetches temporary dMaya asset URLs when present, builds masks/groups, and applies the backend import plan.
 
 The published plugin only connects to `https://dmaya-prod-r2.dmaya.ai` to download temporary generated image assets referenced by a pasted payload. It does not upload existing Figma file content or user designs to dMaya. The public privacy policy is at [dmaya.ai/privacy](https://dmaya.ai/privacy).
 
@@ -41,4 +41,4 @@ See `PUBLISHING.md` and `STORE_LISTING.md` before submitting the first Community
 - Update `PLUGIN_VERSION` when the release changes compatibility or user-visible behavior.
 - Update `REGRESSION_BASELINE.md`.
 - Run `npm run check`.
-- Smoke-test imports against the dMaya landing page and Workvio dashboard payloads.
+- Smoke-test imports against the dMaya landing page, Workvio dashboard, and internal Render IR payloads.

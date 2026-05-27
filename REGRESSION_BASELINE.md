@@ -2,7 +2,7 @@
 
 Known-good landing-page plugin build: `transparent-overflow-v8`
 
-Current dashboard candidate build: `remote-assets-v4-static-decor-v4`
+Current dashboard candidate build: `render-ir-export-v6`
 
 This file pins the behavior that must not regress while improving new layouts such as dashboards.
 
@@ -33,10 +33,21 @@ This file pins the behavior that must not regress while improving new layouts su
 - Simple CSS linear gradients should become editable Figma gradient fills.
 - Containers with CSS box-shadow and no visible fill should still render the shadow in Figma.
 - New backend payloads should include `backendImportPlanVersion: "figma-import-plan-v1"` and per-node `importPlan` data for fills, effects, borders, clipping, vectors, layout, and text behavior.
+- Internal Render IR payloads must stay on the same generic payload/import-plan contract; the plugin must not add browser extraction, CSS interpretation, or website-specific handling.
+- Large Render IR verification imports should yield often enough for progress/cancel messages, so a stale payload cannot leave the plugin permanently stuck.
 - The plugin should prefer backend `importPlan` data when present while still importing older payloads through fallback heuristics.
 - Payloads may use temporary remote asset URLs for large images and snapshots. The plugin must fetch those assets during import while keeping old inline `dataUrl` payloads working.
 - Remote image imports should prefer fetching temporary R2 bytes and show progress in the plugin UI while layers/assets are being created.
 - Backend `remote-assets-v4` payloads may keep small normalized PNG assets inline while offloading larger images to temporary R2 URLs; the plugin must continue importing both in the same payload.
+- Internal Render IR verification may send `import-payload-and-export`; the plugin should import
+  through the same generic path and return a PNG export of the imported root node without adding
+  browser extraction, CSS interpretation, or website-specific logic.
+- Internal large-payload verification may load payload JSON from an explicit URL, including the
+  localhost verification server listed in development network access. URL loading is transport
+  only; imported nodes must still use the same generic payload/import-plan path.
+- The local verification URL may auto-run import plus PNG export when the development localhost
+  server is available. This is only for internal Render IR measurement and must not introduce
+  browser extraction, CSS interpretation, or site-specific behavior into the plugin.
 
 ## Manual Smoke Areas
 
@@ -47,6 +58,7 @@ This file pins the behavior that must not regress while improving new layouts su
 - FAQ answers: clipped hidden answers are expected when closed.
 - Under the hood cards: rounded top content, shadows, model tags, and clipped menus should remain visually close.
 - Act 1 preview: hidden lower chat/status layers should be clipped by the message viewport.
+- Internal Render IR sample payloads: absolute text, image fills, vectors, borders, shadows, opacity, and clipping plans should import through the same generic path.
 
 ## Update Rule
 

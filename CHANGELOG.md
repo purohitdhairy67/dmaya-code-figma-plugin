@@ -2,7 +2,19 @@
 
 ## 0.2.3
 
-- Current importer build: `remote-assets-v4-static-decor-v4`.
+- Current importer build: `render-ir-export-v6`.
+- Adds cooperative cancellation/yielding during large imports so verification runs can recover
+  from a stale or wrong payload instead of leaving the plugin stuck mid-import.
+- Previous importer build: `render-ir-export-v5`.
+- Adds a local verification auto-run path for `http://localhost:8765/payload.json` so large
+  Render IR payloads can be imported and exported without clipboard or file-picker limits.
+- Adds a generic payload URL loader for large local verification payloads. The loader keeps
+  the plugin as a thin importer and only moves JSON into the existing import/export path.
+- Previous importer build: `render-ir-export-v3`.
+- Adds an internal `import-payload-and-export` message for Render IR visual-diff verification.
+  The plugin can import a generic payload and return a PNG data URL for the imported root node,
+  enabling Chrome-vs-Figma export comparison without adding browser/CSS logic to the plugin.
+- Previous importer build: `remote-assets-v4-static-decor-v4`.
 - Aligns the plugin with backend `remote-assets-v4` payloads.
 - Keeps remote asset import behavior compatible while allowing the backend to inline small normalized PNG assets and reserve temporary R2 URLs for large images.
 
