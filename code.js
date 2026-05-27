@@ -2,7 +2,7 @@ figma.showUI(__html__, { width: 430, height: 620, themeColors: true });
 
 const DEFAULT_FONT = { family: "Inter", style: "Regular" };
 const PLUGIN_VERSION = "0.2.3";
-const PLUGIN_BUILD = "remote-assets-v4-static-decor-v4";
+const PLUGIN_BUILD = "render-ir-export-v6";
 const SUPPORTED_PAYLOAD_VERSION = "html-to-figma-plugin-payload-v1";
 const SUPPORTED_BACKEND_IMPORT_PLAN_VERSION = "figma-import-plan-v1";
 const MAX_IMAGE_DIMENSION = 4096;
@@ -11,11 +11,27 @@ const MULTI_LINE_MIN_PADDING = 8;
 const REMOTE_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/gif"];
 
 let defaultFontLoaded = false;
+let activeImportRun = null;
 
 async function ensureDefaultFont() {
   if (defaultFontLoaded) return;
-  await figma.loadFontAsync(DEFAULT_FONT);
+  await loadFontWithTimeout(DEFAULT_FONT);
   defaultFontLoaded = true;
+}
+
+function timeoutAfter(ms, message) {
+  return new Promise(function (_resolve, reject) {
+    setTimeout(function () {
+      reject(new Error(message || "Timed out."));
+    }, ms);
+  });
+}
+
+async function loadFontWithTimeout(fontName) {
+  await Promise.race([
+    figma.loadFontAsync(fontName),
+    timeoutAfter(900, "Timed out loading font " + String(fontName && fontName.family || "font")),
+  ]);
 }
 
 function clamp(value, min, max) {
@@ -187,7 +203,7 @@ async function loadBestFont(textStyle) {
 
   for (const candidate of candidates) {
     try {
-      await figma.loadFontAsync(candidate);
+      await loadFontWithTimeout(candidate);
       return candidate;
     } catch (error) {
       // Try the next closest installed font/style.
@@ -854,6 +870,25 @@ function advanceProgress(context, amount, message) {
     context.progress.completed + Math.max(1, amount || 1)
   );
   reportProgress(context, message, false);
+}
+
+function sleep(ms) {
+  return new Promise(function (resolve) {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function yieldForCancellation(context) {
+  if (!context) return;
+  if (context.cancelToken && context.cancelToken.cancelled) {
+    throw new Error("Import cancelled.");
+  }
+  context.yieldCounter = (context.yieldCounter || 0) + 1;
+  if (context.yieldCounter % 25 !== 0) return;
+  await sleep(0);
+  if (context.cancelToken && context.cancelToken.cancelled) {
+    throw new Error("Import cancelled.");
+  }
 }
 
 function assetFailureLabel(asset) {
@@ -2276,7 +2311,7 @@ async function measureSceneTextWidth(characters, sourceNode) {
     ? sourceNode.fontName
     : DEFAULT_FONT;
   try {
-    await figma.loadFontAsync(sourceFont);
+    await loadFontWithTimeout(sourceFont);
     text.fontName = sourceFont;
   } catch (error) {
     await ensureDefaultFont();
@@ -2679,6 +2714,7 @@ async function createSceneNode(payloadNode, context) {
 async function appendPayloadChildren(payloadNode, parent, context) {
   const children = await repairedChildrenForPayload(payloadNode);
   for (const child of children) {
+    await yieldForCancellation(context);
     const sceneNode = await createSceneNode(child, context);
     if (sceneNode) {
       parent.appendChild(sceneNode);
@@ -2720,82 +2756,154 @@ function countPayloadNodes(payloadNode) {
 
 async function importPayload(rawPayload) {
   const payload = normalizePayload(rawPayload);
+  const cancelToken = { cancelled: false };
+  activeImportRun = cancelToken;
   figma.ui.postMessage({ type: "import-progress", percent: 1, message: "Loading current Figma page..." });
-  await figma.currentPage.loadAsync();
+  try {
+    await figma.currentPage.loadAsync();
 
-  const assetCount = Array.isArray(payload.assets) ? payload.assets.length : 0;
-  const nodeCount = countPayloadNodes(payload.document);
-  const context = {
-    assetById: new Map((payload.assets || []).map((asset) => [asset.id, asset])),
-    imageHashByAssetId: new Map(),
-    imageHashByAssetSource: new Map(),
-    contentTargetByNode: new Map(),
-    visualNodeByContentTarget: new Map(),
-    progress: {
-      completed: 1,
-      total: Math.max(1, nodeCount + assetCount),
-      lastPercent: 1,
-      lastAt: 0,
-    },
-    stats: {
-      nodes: 0,
-      images: 0,
-      vectors: 0,
-      remoteAssetFetches: 0,
-      remoteAssetAsyncFallbacks: 0,
-      remoteAssetFailures: 0,
-      remoteAssetFailureDetails: [],
-      missingAssets: 0,
-      missingImageFills: 0,
-      skippedOversizedImages: 0,
-      unsupportedImages: 0,
-      unsupportedVectors: 0,
-      clipFrames: 0,
-      clipMasks: 0,
-      inferredClips: 0,
-      maskGroups: 0,
-      maskGroupFailures: 0,
-    },
+    const assetCount = Array.isArray(payload.assets) ? payload.assets.length : 0;
+    const nodeCount = countPayloadNodes(payload.document);
+    const context = {
+      assetById: new Map((payload.assets || []).map((asset) => [asset.id, asset])),
+      imageHashByAssetId: new Map(),
+      imageHashByAssetSource: new Map(),
+      contentTargetByNode: new Map(),
+      visualNodeByContentTarget: new Map(),
+      cancelToken: cancelToken,
+      yieldCounter: 0,
+      progress: {
+        completed: 1,
+        total: Math.max(1, nodeCount + assetCount),
+        lastPercent: 1,
+        lastAt: 0,
+      },
+      stats: {
+        nodes: 0,
+        images: 0,
+        vectors: 0,
+        remoteAssetFetches: 0,
+        remoteAssetAsyncFallbacks: 0,
+        remoteAssetFailures: 0,
+        remoteAssetFailureDetails: [],
+        missingAssets: 0,
+        missingImageFills: 0,
+        skippedOversizedImages: 0,
+        unsupportedImages: 0,
+        unsupportedVectors: 0,
+        clipFrames: 0,
+        clipMasks: 0,
+        inferredClips: 0,
+        maskGroups: 0,
+        maskGroupFailures: 0,
+      },
+    };
+
+    const before = figma.currentPage.children.length;
+    reportProgress(context, "Creating Figma layers...", true);
+    await appendPayloadChildren(payload.document, figma.currentPage, context);
+    const created = figma.currentPage.children.slice(before);
+    if (created.length === 0) throw new Error("No importable Figma nodes were found in this payload.");
+
+    figma.ui.postMessage({ type: "import-progress", percent: 99, message: "Selecting imported layers..." });
+    figma.currentPage.selection = created;
+    figma.viewport.scrollAndZoomIntoView(created);
+
+    const skipped =
+      context.stats.missingAssets +
+      context.stats.missingImageFills +
+      context.stats.skippedOversizedImages +
+      context.stats.unsupportedImages +
+      context.stats.remoteAssetFailures +
+      context.stats.unsupportedVectors;
+    const skippedText = skipped > 0 ? ` ${skipped} image/vector fills need review.` : "";
+    const inferredText = context.stats.inferredClips > 0 ? `, ${context.stats.inferredClips} inferred` : "";
+    const clippingText = context.stats.clipFrames > 0
+      ? ` Applied ${context.stats.maskGroups}/${context.stats.clipFrames} overflow masks${inferredText}.`
+      : "";
+    const maskFailureText = context.stats.maskGroupFailures > 0
+      ? ` ${context.stats.maskGroupFailures} masks fell back to frame clipping.`
+      : "";
+    const remoteFailureText = context.stats.remoteAssetFailureDetails.length > 0
+      ? " First remote issue: " + context.stats.remoteAssetFailureDetails[0]
+      : "";
+    return {
+      summary: `Imported ${created.length} root layer${created.length === 1 ? "" : "s"} with ${context.stats.nodes} nodes and ${context.stats.images} images. Plugin v${PLUGIN_VERSION} (${PLUGIN_BUILD}).${clippingText}${maskFailureText}${skippedText}${remoteFailureText}`,
+      created: created,
+      stats: context.stats,
+    };
+  } finally {
+    if (activeImportRun === cancelToken) activeImportRun = null;
+  }
+}
+
+function bytesToBase64(bytes) {
+  var binary = "";
+  var chunkSize = 0x8000;
+  for (var index = 0; index < bytes.length; index += chunkSize) {
+    var chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.prototype.slice.call(chunk));
+  }
+  return btoa(binary);
+}
+
+async function exportImportedPng(created, settings) {
+  if (!created || created.length === 0) throw new Error("No imported node is available for export.");
+  var target = created[0];
+  var constraint = settings && settings.constraint ? settings.constraint : { type: "SCALE", value: 1 };
+  var bytes = await target.exportAsync({
+    format: "PNG",
+    constraint: constraint,
+  });
+  return {
+    nodeName: target.name,
+    nodeType: target.type,
+    width: target.width,
+    height: target.height,
+    dataUrl: "data:image/png;base64," + bytesToBase64(bytes),
   };
-
-  const before = figma.currentPage.children.length;
-  reportProgress(context, "Creating Figma layers...", true);
-  await appendPayloadChildren(payload.document, figma.currentPage, context);
-  const created = figma.currentPage.children.slice(before);
-  if (created.length === 0) throw new Error("No importable Figma nodes were found in this payload.");
-
-  figma.ui.postMessage({ type: "import-progress", percent: 99, message: "Selecting imported layers..." });
-  figma.currentPage.selection = created;
-  figma.viewport.scrollAndZoomIntoView(created);
-
-  const skipped =
-    context.stats.missingAssets +
-    context.stats.missingImageFills +
-    context.stats.skippedOversizedImages +
-    context.stats.unsupportedImages +
-    context.stats.remoteAssetFailures +
-    context.stats.unsupportedVectors;
-  const skippedText = skipped > 0 ? ` ${skipped} image/vector fills need review.` : "";
-  const inferredText = context.stats.inferredClips > 0 ? `, ${context.stats.inferredClips} inferred` : "";
-  const clippingText = context.stats.clipFrames > 0
-    ? ` Applied ${context.stats.maskGroups}/${context.stats.clipFrames} overflow masks${inferredText}.`
-    : "";
-  const maskFailureText = context.stats.maskGroupFailures > 0
-    ? ` ${context.stats.maskGroupFailures} masks fell back to frame clipping.`
-    : "";
-  const remoteFailureText = context.stats.remoteAssetFailureDetails.length > 0
-    ? " First remote issue: " + context.stats.remoteAssetFailureDetails[0]
-    : "";
-  return `Imported ${created.length} root layer${created.length === 1 ? "" : "s"} with ${context.stats.nodes} nodes and ${context.stats.images} images. Plugin v${PLUGIN_VERSION} (${PLUGIN_BUILD}).${clippingText}${maskFailureText}${skippedText}${remoteFailureText}`;
 }
 
 figma.ui.onmessage = async (message) => {
-  if (!message || message.type !== "import-payload") return;
+  if (!message) return;
+  if (message.type === "cancel-import") {
+    if (activeImportRun) activeImportRun.cancelled = true;
+    figma.ui.postMessage({ type: "import-progress", percent: 98, message: "Cancelling import..." });
+    return;
+  }
+  if (message.type === "export-selected-png") {
+    try {
+      const exported = await exportImportedPng(figma.currentPage.selection, message.exportSettings);
+      figma.ui.postMessage({
+        type: "import-export-complete",
+        summary: "Exported selected node as PNG.",
+        export: exported,
+        stats: {},
+      });
+    } catch (error) {
+      const messageText = error && error.message ? error.message : "Export failed.";
+      figma.ui.postMessage({ type: "import-error", message: messageText });
+      figma.notify(messageText, { error: true });
+    }
+    return;
+  }
+  if (message.type !== "import-payload" && message.type !== "import-payload-and-export") return;
   try {
-    const summary = await importPayload(message.payload);
+    const result = await importPayload(message.payload);
     figma.ui.postMessage({ type: "import-progress", percent: 100, message: "Import complete." });
-    figma.ui.postMessage({ type: "import-complete", summary });
-    figma.notify(summary);
+    if (message.type === "import-payload-and-export") {
+      figma.ui.postMessage({ type: "import-progress", percent: 100, message: "Exporting imported PNG..." });
+      const exported = await exportImportedPng(result.created, message.exportSettings);
+      figma.ui.postMessage({
+        type: "import-export-complete",
+        summary: result.summary,
+        export: exported,
+        stats: result.stats,
+      });
+    } else {
+      figma.ui.postMessage({ type: "import-complete", summary: result.summary });
+    }
+    figma.notify(result.summary);
   } catch (error) {
     const messageText = error && error.message ? error.message : "Import failed.";
     figma.ui.postMessage({ type: "import-error", message: messageText });

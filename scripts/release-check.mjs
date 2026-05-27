@@ -93,9 +93,10 @@ expect(
   "manifest networkAccess.allowedDomains must be limited to the production dMaya R2 asset domain."
 );
 expect(
-  devAllowedDomains.length === 1 &&
-    devAllowedDomains.includes("https://dmaya-dev-r2.dmaya.ai"),
-  "manifest networkAccess.devAllowedDomains must include the development dMaya R2 asset domain."
+  devAllowedDomains.length === 2 &&
+    devAllowedDomains.includes("https://dmaya-dev-r2.dmaya.ai") &&
+    devAllowedDomains.includes("http://localhost:8765"),
+  "manifest networkAccess.devAllowedDomains must include the development dMaya R2 asset domain and localhost verification server."
 );
 expect(
   typeof manifest.networkAccess.reasoning === "string" &&
